@@ -1,4 +1,35 @@
+# ── Identity ──────────────────────────────────────────
 schema: holon/v0
+uuid: "28f22ab5-c62d-41f8-9ada-e34333060ff9"
+given_name: Grace
+family_name: OP
+motto: One command, every holon.
+composer: B. ALTER
+clade: deterministic/stateful
+status: draft
+born: "2026-02-12"
+
+# ── Lineage ───────────────────────────────────────────
+parents: ['b00932e5-49d4-4724-ab4b-e2fc9e22e108']
+reproduction: manual
+generated_by: sophia-who
+
+# ── Description ───────────────────────────────────────
+description: |
+  OP is the unified entry point to the Organic Programming ecosystem.
+  It discovers holons — locally or over the network — and dispatches
+  commands to them through a single interface. The actant installs one
+  binary and gets access to every holon.
+  
+  OP does not implement domain logic. It routes.
+
+# ── Contract ──────────────────────────────────────────
+contract:
+  proto: protos/op/v1/op.proto
+  service: OPService
+  rpcs: [Discover, Invoke, CreateIdentity, ListIdentities, ]
+
+# ── Operational ───────────────────────────────────────
 kind: native
 build:
   runner: go-module
@@ -7,4 +38,4 @@ requires:
   commands: [go]
   files: [go.mod]
 artifacts:
-  binary: .op/build/bin/op
+  binary: op
