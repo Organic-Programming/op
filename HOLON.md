@@ -155,11 +155,17 @@ op show <uuid>                       → displays a holon's identity
 
 ## Local discovery
 
-OP discovers holons in order:
+OP's discovery policy is:
 
 1. `holons/` directory (submodule siblings)
-2. `$PATH` (installed holon binaries)
-3. `~/.holon/cache/` (cached by Atlas)
+2. `$OPBIN` (canonical install directory, default: `$OPPATH/bin`)
+3. `$PATH` (other installed holon binaries)
+4. `$OPPATH/cache/` (cached by Atlas; default: `~/.holon/cache/`)
+
+By convention, users add `OPBIN` to `PATH`, but OP still treats the
+canonical install directory as a distinct discovery source so the
+ecosystem has a predictable home independent of any one language
+toolchain.
 
 ```
 op discover                          → list all available holons
