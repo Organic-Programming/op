@@ -216,7 +216,7 @@ func resolveBuildContext(manifest *LoadedManifest, opts BuildOptions) (BuildCont
 	target := strings.TrimSpace(opts.Target)
 	if target != "" {
 		if strings.EqualFold(target, "darwin") {
-			return BuildContext{}, fmt.Errorf("unsupported target %q (supported: macos, linux, windows, ios, android)", target)
+			return BuildContext{}, fmt.Errorf("unsupported target %q (supported: macos, linux, windows, ios, tvos, watchos, visionos, android)", target)
 		}
 		normalizedTarget, err := normalizeBuildTarget(target)
 		if err != nil {
@@ -647,10 +647,10 @@ func normalizeBuildTarget(target string) (string, error) {
 	switch normalized {
 	case "darwin", "macos":
 		return "macos", nil
-	case "linux", "windows", "ios", "android":
+	case "linux", "windows", "ios", "tvos", "watchos", "visionos", "android":
 		return normalized, nil
 	default:
-		return "", fmt.Errorf("unsupported target %q (supported: macos, linux, windows, ios, android)", target)
+		return "", fmt.Errorf("unsupported target %q (supported: macos, linux, windows, ios, tvos, watchos, visionos, android)", target)
 	}
 }
 

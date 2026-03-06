@@ -523,9 +523,9 @@ func (s RecipeStep) actionCount() int {
 
 func isValidPlatform(platform string) bool {
 	switch normalizePlatformName(platform) {
-	case "aix", "android", "macos", "dragonfly", "freebsd", "illumos", "ios",
-		"js", "linux", "netbsd", "openbsd", "plan9", "solaris", "wasip1",
-		"windows":
+	case "aix", "android", "ios", "js", "linux", "macos", "netbsd", "openbsd",
+		"plan9", "solaris", "tvos", "visionos", "wasip1", "watchos", "windows",
+		"dragonfly", "freebsd", "illumos":
 		return true
 	default:
 		return false
