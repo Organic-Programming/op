@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 )
 
@@ -107,10 +108,10 @@ func ExecuteLifecycle(op Operation, ref string, opts ...BuildOptions) (Report, e
 		return report, nil
 	case OperationBuild:
 		err = r.build(target.Manifest, ctx, &report)
-		if err == nil {
+		if err == nil && !isAggregateBuildTarget(ctx.Target) {
 			err = resolveArtifact(target.Manifest, ctx, &report)
 		}
-		if err == nil && !ctx.DryRun {
+		if err == nil && !ctx.DryRun && !isAggregateBuildTarget(ctx.Target) {
 			err = verifyArtifact(target.Manifest, ctx, &report)
 		}
 		if err == nil && ctx.DryRun {
@@ -181,7 +182,7 @@ func baseReport(op Operation, target *Target, ctx BuildContext) Report {
 }
 
 func preflight(manifest *LoadedManifest, ctx BuildContext) error {
-	if !manifest.SupportsTarget(ctx.Target) {
+	if !isAggregateBuildTarget(ctx.Target) && !manifest.SupportsTarget(ctx.Target) {
 		return fmt.Errorf("target %q is not supported by %s", ctx.Target, workspaceRelativePath(manifest.Path))
 	}
 
@@ -216,7 +217,7 @@ func resolveBuildContext(manifest *LoadedManifest, opts BuildOptions) (BuildCont
 	target := strings.TrimSpace(opts.Target)
 	if target != "" {
 		if strings.EqualFold(target, "darwin") {
-			return BuildContext{}, fmt.Errorf("unsupported target %q (supported: macos, linux, windows, ios, tvos, watchos, visionos, android)", target)
+			return BuildContext{}, fmt.Errorf("unsupported target %q (supported: macos, linux, windows, ios, ios-simulator, tvos, tvos-simulator, watchos, watchos-simulator, visionos, visionos-simulator, android, all)", target)
 		}
 		normalizedTarget, err := normalizeBuildTarget(target)
 		if err != nil {
@@ -227,6 +228,10 @@ func resolveBuildContext(manifest *LoadedManifest, opts BuildOptions) (BuildCont
 		target = defaults.Target
 	} else {
 		target = canonicalRuntimeTarget()
+	}
+
+	if isAggregateBuildTarget(target) && manifest.Manifest.Build.Runner != RunnerRecipe {
+		return BuildContext{}, fmt.Errorf("target %q is only supported for recipe runners", target)
 	}
 
 	mode := strings.TrimSpace(opts.Mode)
@@ -410,6 +415,12 @@ func (cmakeRunner) clean(manifest *LoadedManifest, report *Report) error {
 type recipeRunner struct{}
 
 func (recipeRunner) check(manifest *LoadedManifest, ctx BuildContext) error {
+	if isAggregateBuildTarget(ctx.Target) {
+		if len(manifest.Manifest.Build.Targets) == 0 {
+			return fmt.Errorf("no recipe targets declared")
+		}
+		return nil
+	}
 	if _, ok := manifest.Manifest.Build.Targets[ctx.Target]; !ok {
 		return fmt.Errorf("no recipe target %q", ctx.Target)
 	}
@@ -434,6 +445,28 @@ func (recipeRunner) check(manifest *LoadedManifest, ctx BuildContext) error {
 }
 
 func (r recipeRunner) build(manifest *LoadedManifest, ctx BuildContext, report *Report) error {
+	if isAggregateBuildTarget(ctx.Target) {
+		targets := sortedRecipeTargets(manifest)
+		if len(targets) == 0 {
+			return fmt.Errorf("no recipe targets declared")
+		}
+
+		for _, name := range targets {
+			childReport, err := ExecuteLifecycle(OperationBuild, manifest.Dir, BuildOptions{
+				Target: name,
+				Mode:   ctx.Mode,
+				DryRun: ctx.DryRun,
+			})
+			report.Children = append(report.Children, childReport)
+			if err != nil {
+				return fmt.Errorf("recipe target %q: %w", name, err)
+			}
+		}
+
+		report.Notes = append(report.Notes, fmt.Sprintf("recipe aggregate build covered targets: %s", strings.Join(targets, ", ")))
+		return nil
+	}
+
 	target, ok := manifest.Manifest.Build.Targets[ctx.Target]
 	if !ok {
 		available := make([]string, 0, len(manifest.Manifest.Build.Targets))
@@ -647,10 +680,10 @@ func normalizeBuildTarget(target string) (string, error) {
 	switch normalized {
 	case "darwin", "macos":
 		return "macos", nil
-	case "linux", "windows", "ios", "tvos", "watchos", "visionos", "android":
+	case "linux", "windows", "ios", "ios-simulator", "tvos", "tvos-simulator", "watchos", "watchos-simulator", "visionos", "visionos-simulator", "android", "all":
 		return normalized, nil
 	default:
-		return "", fmt.Errorf("unsupported target %q (supported: macos, linux, windows, ios, tvos, watchos, visionos, android)", target)
+		return "", fmt.Errorf("unsupported target %q (supported: macos, linux, windows, ios, ios-simulator, tvos, tvos-simulator, watchos, watchos-simulator, visionos, visionos-simulator, android, all)", target)
 	}
 }
 
@@ -673,6 +706,42 @@ func isValidBuildMode(mode string) bool {
 	default:
 		return false
 	}
+}
+
+func isAggregateBuildTarget(target string) bool {
+	return strings.EqualFold(strings.TrimSpace(target), "all")
+}
+
+func sortedRecipeTargets(manifest *LoadedManifest) []string {
+	targets := make([]string, 0, len(manifest.Manifest.Build.Targets))
+	for name := range manifest.Manifest.Build.Targets {
+		targets = append(targets, name)
+	}
+
+	order := map[string]int{
+		"macos":               10,
+		"ios":                 20,
+		"ios-simulator":       21,
+		"tvos":                30,
+		"tvos-simulator":      31,
+		"watchos":             40,
+		"watchos-simulator":   41,
+		"visionos":            50,
+		"visionos-simulator":  51,
+		"android":             60,
+		"linux":               70,
+		"windows":             80,
+	}
+
+	sort.Slice(targets, func(i, j int) bool {
+		left := order[targets[i]]
+		right := order[targets[j]]
+		if left != right {
+			return left < right
+		}
+		return targets[i] < targets[j]
+	})
+	return targets
 }
 
 func canonicalRuntimeTarget() string {

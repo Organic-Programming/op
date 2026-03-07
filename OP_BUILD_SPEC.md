@@ -80,7 +80,15 @@ Initial standard targets:
 - `linux`
 - `windows`
 - `ios`
+- `ios-simulator`
+- `tvos`
+- `tvos-simulator`
+- `watchos`
+- `watchos-simulator`
+- `visionos`
+- `visionos-simulator`
 - `android`
+- `all` (recipe runner only)
 
 Runner behavior on unsupported mode or target must fail with an
 actionable error, not silently degrade.

@@ -97,7 +97,7 @@ OP commands:
   op clean [<holon-or-path>]             remove .op/ build outputs
 
 Build flags:
-  --target <macos|linux|windows|ios|tvos|watchos|visionos|android>   platform target (default: current OS)
+  --target <macos|linux|windows|ios|ios-simulator|tvos|tvos-simulator|watchos|watchos-simulator|visionos|visionos-simulator|android|all>   platform target (default: current OS)
   --mode <debug|release|profile>               build mode (default: debug)
   --dry-run                                    print resolved plan, do not execute
   op discover                            list available holons

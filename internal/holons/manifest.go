@@ -201,6 +201,9 @@ func (m *LoadedManifest) BinaryPath() string {
 // PrimaryArtifactPath returns the primary artifact path (success contract).
 // Target-aware artifacts take precedence over artifacts.primary, then artifacts.binary.
 func (m *LoadedManifest) PrimaryArtifactPath(ctx BuildContext) string {
+	if isAggregateBuildTarget(ctx.Target) {
+		return ""
+	}
 	if byTarget, ok := m.Manifest.Artifacts.PrimaryByTarget[ctx.Target]; ok {
 		if p := strings.TrimSpace(byTarget[ctx.Mode]); p != "" {
 			return m.mustResolveManifestPath(p)
@@ -523,8 +526,8 @@ func (s RecipeStep) actionCount() int {
 
 func isValidPlatform(platform string) bool {
 	switch normalizePlatformName(platform) {
-	case "aix", "android", "ios", "js", "linux", "macos", "netbsd", "openbsd",
-		"plan9", "solaris", "tvos", "visionos", "wasip1", "watchos", "windows",
+	case "aix", "android", "ios", "ios-simulator", "js", "linux", "macos", "netbsd", "openbsd",
+		"plan9", "solaris", "tvos", "tvos-simulator", "visionos", "visionos-simulator", "wasip1", "watchos", "watchos-simulator", "windows",
 		"dragonfly", "freebsd", "illumos":
 		return true
 	default:

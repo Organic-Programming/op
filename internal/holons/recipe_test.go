@@ -3,6 +3,7 @@ package holons
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -235,6 +236,67 @@ artifacts:
 	}
 	if !strings.Contains(err.Error(), "exactly one action") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRecipeBuildAllDryRunBuildsEachDeclaredTarget(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "app"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	writeRecipeManifest(t, root, `schema: holon/v0
+kind: composite
+platforms: [macos, ios-simulator]
+build:
+  runner: recipe
+  defaults:
+    mode: debug
+  members:
+    - id: app
+      path: app
+      type: component
+  targets:
+    macos:
+      steps:
+        - exec:
+            cwd: app
+            argv: ["echo", "macos"]
+    ios-simulator:
+      steps:
+        - exec:
+            cwd: app
+            argv: ["echo", "ios-simulator"]
+artifacts:
+  primary_by_target:
+    macos:
+      debug: app/macos.app
+    ios-simulator:
+      debug: app/ios-simulator.app
+`)
+
+	report, err := ExecuteLifecycle(OperationBuild, root, BuildOptions{
+		Target: "all",
+		DryRun: true,
+	})
+	if err != nil {
+		t.Fatalf("ExecuteLifecycle(build all) failed: %v", err)
+	}
+
+	if report.BuildTarget != "all" {
+		t.Fatalf("report.BuildTarget = %q, want %q", report.BuildTarget, "all")
+	}
+	if report.Artifact != "" {
+		t.Fatalf("report.Artifact = %q, want empty for aggregate builds", report.Artifact)
+	}
+	if len(report.Children) != 2 {
+		t.Fatalf("len(report.Children) = %d, want 2", len(report.Children))
+	}
+
+	gotTargets := []string{report.Children[0].BuildTarget, report.Children[1].BuildTarget}
+	wantTargets := []string{"macos", "ios-simulator"}
+	if !slices.Equal(gotTargets, wantTargets) {
+		t.Fatalf("child targets = %v, want %v", gotTargets, wantTargets)
 	}
 }
 

@@ -6,6 +6,25 @@ OP is the unified entry point to the Organic Programming ecosystem.
 It discovers holons — locally or over the network — and dispatches
 commands to them through a single interface.
 
+## Install
+
+```bash
+go install github.com/organic-programming/grace-op/cmd/op@latest
+```
+
+The binary is installed as `op` (not `grace-op`) because the Go module
+entry point is `cmd/op`. Make sure `$(go env GOPATH)/bin` is in your
+`PATH`.
+
+### From Source
+
+```bash
+git clone https://github.com/organic-programming/grace-op.git
+cd grace-op
+go build -o op ./cmd/op
+sudo mv op /usr/local/bin/   # or anywhere in your PATH
+```
+
 ## Usage
 
 ```

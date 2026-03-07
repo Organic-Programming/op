@@ -4,11 +4,16 @@ import "testing"
 
 func TestNormalizeBuildTargetSupportsAppleFamilies(t *testing.T) {
 	tests := map[string]string{
-		"macos":    "macos",
-		"ios":      "ios",
-		"tvos":     "tvos",
-		"watchos":  "watchos",
-		"visionos": "visionos",
+		"macos":              "macos",
+		"ios":                "ios",
+		"ios-simulator":      "ios-simulator",
+		"tvos":               "tvos",
+		"tvos-simulator":     "tvos-simulator",
+		"watchos":            "watchos",
+		"watchos-simulator":  "watchos-simulator",
+		"visionos":           "visionos",
+		"visionos-simulator": "visionos-simulator",
+		"all":                "all",
 	}
 
 	for input, want := range tests {
@@ -23,7 +28,7 @@ func TestNormalizeBuildTargetSupportsAppleFamilies(t *testing.T) {
 }
 
 func TestIsValidPlatformAcceptsAppleFamilies(t *testing.T) {
-	for _, platform := range []string{"macos", "ios", "tvos", "watchos", "visionos"} {
+	for _, platform := range []string{"macos", "ios", "ios-simulator", "tvos", "tvos-simulator", "watchos", "watchos-simulator", "visionos", "visionos-simulator"} {
 		if !isValidPlatform(platform) {
 			t.Fatalf("expected %q to be a valid platform", platform)
 		}
