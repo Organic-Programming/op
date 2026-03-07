@@ -20,7 +20,7 @@ import (
 
 // Run dispatches the command and returns an exit code.
 func Run(args []string, version string) int {
-	format, args, err := parseGlobalFormat(args)
+	format, quiet, args, err := parseGlobalOptions(args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "op: %v\n", err)
 		return 1
@@ -36,21 +36,21 @@ func Run(args []string, version string) int {
 	switch cmd {
 	// --- OP's own commands ---
 	case "check":
-		return cmdLifecycle(format, holons.OperationCheck, rest)
+		return cmdLifecycle(format, quiet, holons.OperationCheck, rest)
 	case "build":
-		return cmdLifecycle(format, holons.OperationBuild, rest)
+		return cmdLifecycle(format, quiet, holons.OperationBuild, rest)
 	case "test":
-		return cmdLifecycle(format, holons.OperationTest, rest)
+		return cmdLifecycle(format, quiet, holons.OperationTest, rest)
 	case "clean":
-		return cmdLifecycle(format, holons.OperationClean, rest)
+		return cmdLifecycle(format, quiet, holons.OperationClean, rest)
 	case "install":
-		return cmdInstall(format, rest)
+		return cmdInstall(format, quiet, rest)
 	case "uninstall":
-		return cmdUninstall(format, rest)
+		return cmdUninstall(format, quiet, rest)
 	case "mod":
-		return cmdMod(format, rest)
+		return cmdMod(format, quiet, rest)
 	case "run":
-		return cmdRun(rest)
+		return cmdRun(format, quiet, rest)
 	case "discover":
 		return cmdDiscover(format)
 	case "env":
@@ -64,7 +64,7 @@ func Run(args []string, version string) int {
 		PrintUsage()
 		return 0
 	case "new", "list", "show":
-		return cmdWho(format, cmd, rest)
+		return cmdWho(format, quiet, cmd, rest)
 
 	// --- URI dispatch: grpc://, grpc+stdio://, grpc+unix://, grpc+ws:// ---
 	default:
@@ -85,6 +85,7 @@ func PrintUsage() {
 
 Global flags (must come before <holon> or URI):
   -f, --format <text|json>              output format for RPC responses (default: text)
+  -q, --quiet                           suppress progress and suggestions
 
 Holon dispatch (transport chain):
   op <holon> <command> [args]            dispatch via mem://, stdio://, or tcp://
@@ -259,11 +260,15 @@ func cmdServe(args []string) int {
 
 // cmdRun starts a holon's gRPC server as a background process.
 // Usage: op run <holon>:<port>  or  op run <holon> --listen <URI>
-func cmdRun(args []string) int {
+func cmdRun(format Format, globalQuiet bool, args []string) int {
+	ui, args, _ := extractQuietFlag(args)
+	quiet := globalQuiet || ui.Quiet
+
 	if len(args) < 1 {
 		fmt.Fprintln(os.Stderr, "op run: requires <holon>:<port> or <holon> --listen <URI>")
 		return 1
 	}
+	printer := commandProgress(format, quiet)
 
 	// Check for --listen form first
 	listenURI := flagValue(args, "--listen")
@@ -284,21 +289,26 @@ func cmdRun(args []string) int {
 		listenURI = "tcp://:" + parts[1]
 	}
 
+	printer.Step("resolving " + holonName + "...")
 	binary, err := resolveHolon(holonName)
 	if err != nil {
+		printer.Done("run failed", err)
 		fmt.Fprintf(os.Stderr, "op run: holon %q not found\n", holonName)
 		return 1
 	}
 
 	// Launch: <binary> serve --listen <URI>
+	printer.Step("launching server...")
 	cmd := exec.Command(binary, "serve", "--listen", listenURI)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Start(); err != nil {
+		printer.Done("run failed", err)
 		fmt.Fprintf(os.Stderr, "op run: %v\n", err)
 		return 1
 	}
+	printer.Step("waiting for readiness...")
 
 	fmt.Printf("op run: started %s (pid %d) on %s\n", holonName, cmd.Process.Pid, listenURI)
 	fmt.Printf("op run: stop the process by PID %d using your platform's process tool\n", cmd.Process.Pid)
@@ -307,6 +317,7 @@ func cmdRun(args []string) int {
 	if err := cmd.Process.Release(); err != nil {
 		fmt.Fprintf(os.Stderr, "op run: warning: could not detach process: %v\n", err)
 	}
+	printer.Done(fmt.Sprintf("server ready for %s in %s", holonName, humanElapsed(printer)), nil)
 
 	return 0
 }
@@ -657,40 +668,49 @@ func flagOrDefault(args []string, key, defaultVal string) string {
 	return defaultVal
 }
 
-func parseGlobalFormat(args []string) (Format, []string, error) {
+func parseGlobalOptions(args []string) (Format, bool, []string, error) {
 	format := FormatText
+	quiet := false
 	i := 0
 	for i < len(args) {
 		switch {
+		case args[i] == "--quiet" || args[i] == "-q":
+			quiet = true
+			i++
 		case args[i] == "--format" || args[i] == "-f":
 			if i+1 >= len(args) {
-				return "", nil, fmt.Errorf("%s requires a value (text or json)", args[i])
+				return "", false, nil, fmt.Errorf("%s requires a value (text or json)", args[i])
 			}
 			parsed, err := parseFormat(args[i+1])
 			if err != nil {
-				return "", nil, err
+				return "", false, nil, err
 			}
 			format = parsed
 			i += 2
 		case strings.HasPrefix(args[i], "--format="):
 			parsed, err := parseFormat(strings.TrimPrefix(args[i], "--format="))
 			if err != nil {
-				return "", nil, err
+				return "", false, nil, err
 			}
 			format = parsed
 			i++
 		case strings.HasPrefix(args[i], "-f="):
 			parsed, err := parseFormat(strings.TrimPrefix(args[i], "-f="))
 			if err != nil {
-				return "", nil, err
+				return "", false, nil, err
 			}
 			format = parsed
 			i++
 		default:
-			return format, args[i:], nil
+			return format, quiet, args[i:], nil
 		}
 	}
-	return format, nil, nil
+	return format, quiet, nil, nil
+}
+
+func parseGlobalFormat(args []string) (Format, []string, error) {
+	format, _, remaining, err := parseGlobalOptions(args)
+	return format, remaining, err
 }
 
 func parseFormat(value string) (Format, error) {

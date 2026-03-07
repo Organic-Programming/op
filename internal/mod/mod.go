@@ -13,6 +13,7 @@ import (
 
 	openv "github.com/organic-programming/grace-op/internal/env"
 	"github.com/organic-programming/grace-op/internal/modfile"
+	"github.com/organic-programming/grace-op/internal/progress"
 	"github.com/organic-programming/sophia-who/pkg/identity"
 )
 
@@ -70,6 +71,10 @@ type TidyResult struct {
 	SumFile string       `json:"sum_file"`
 	Pruned  []string     `json:"pruned,omitempty"`
 	Current []Dependency `json:"current"`
+}
+
+type Options struct {
+	Progress progress.Reporter
 }
 
 var listRemoteTags = realListRemoteTags
@@ -183,10 +188,12 @@ func Remove(dir, depPath string) (*RemoveResult, error) {
 	return &RemoveResult{Path: depPath}, nil
 }
 
-func Pull(dir string) (*PullResult, error) {
+func Pull(dir string, opts ...Options) (*PullResult, error) {
 	if strings.TrimSpace(dir) == "" {
 		dir = "."
 	}
+	reporter := modProgress(opts)
+	reporter.Step("resolving versions...")
 
 	mod, _, err := loadMod(dir)
 	if err != nil {
@@ -204,6 +211,7 @@ func Pull(dir string) (*PullResult, error) {
 		if mod.ResolvedPath(req.Path) != "" {
 			continue
 		}
+		reporter.Step(fmt.Sprintf("fetching %s@%s...", req.Path, req.Version))
 		cachePath, err := fetchToCache(req.Path, req.Version)
 		if err != nil {
 			return nil, fmt.Errorf("fetch %s@%s: %w", req.Path, req.Version, err)
@@ -224,10 +232,12 @@ func Pull(dir string) (*PullResult, error) {
 	return &PullResult{Fetched: fetched}, nil
 }
 
-func Update(dir, targetModule string) (*UpdateResult, error) {
+func Update(dir, targetModule string, opts ...Options) (*UpdateResult, error) {
 	if strings.TrimSpace(dir) == "" {
 		dir = "."
 	}
+	reporter := modProgress(opts)
+	reporter.Step("resolving latest versions...")
 
 	mod, modPath, err := loadMod(dir)
 	if err != nil {
@@ -263,6 +273,7 @@ func Update(dir, targetModule string) (*UpdateResult, error) {
 	}
 
 	if len(updated) > 0 {
+		reporter.Step("updating holon.mod...")
 		if err := mod.Write(modPath); err != nil {
 			return nil, fmt.Errorf("write holon.mod: %w", err)
 		}
@@ -332,10 +343,12 @@ func Graph(dir string) (*GraphResult, error) {
 	}, nil
 }
 
-func Tidy(dir string) (*TidyResult, error) {
+func Tidy(dir string, opts ...Options) (*TidyResult, error) {
 	if strings.TrimSpace(dir) == "" {
 		dir = "."
 	}
+	reporter := modProgress(opts)
+	reporter.Step("scanning imports...")
 
 	mod, modPath, err := loadMod(dir)
 	if err != nil {
@@ -343,11 +356,13 @@ func Tidy(dir string) (*TidyResult, error) {
 	}
 	mod.Require = canonicalRequires(mod.Require)
 	mod.Replace = canonicalReplaces(mod.Replace)
+	reporter.Step("cleaning holon.mod...")
 	if err := mod.Write(modPath); err != nil {
 		return nil, fmt.Errorf("write holon.mod: %w", err)
 	}
 
 	sumPath := filepath.Join(dir, "holon.sum")
+	reporter.Step("regenerating holon.sum...")
 	sum, err := modfile.ParseSum(sumPath)
 	if err != nil {
 		return nil, fmt.Errorf("parse holon.sum: %w", err)
@@ -456,6 +471,13 @@ func compareVersions(a, b string) int {
 		return -1
 	}
 	return strings.Compare(a, b)
+}
+
+func modProgress(opts []Options) progress.Reporter {
+	if len(opts) > 0 && opts[0].Progress != nil {
+		return opts[0].Progress
+	}
+	return progress.Silence()
 }
 
 func loadMod(dir string) (*modfile.ModFile, string, error) {

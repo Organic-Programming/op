@@ -8,10 +8,12 @@ import (
 	"strings"
 
 	openv "github.com/organic-programming/grace-op/internal/env"
+	"github.com/organic-programming/grace-op/internal/progress"
 )
 
 type InstallOptions struct {
-	NoBuild bool
+	NoBuild  bool
+	Progress progress.Reporter
 }
 
 type InstallReport struct {
@@ -29,6 +31,11 @@ type InstallReport struct {
 }
 
 func Install(ref string, opts InstallOptions) (InstallReport, error) {
+	reporter := opts.Progress
+	if reporter == nil {
+		reporter = progress.Silence()
+	}
+	reporter.Step("resolving " + normalizedTarget(ref) + "...")
 	target, err := ResolveTarget(ref)
 	if err != nil {
 		return InstallReport{
@@ -50,6 +57,7 @@ func Install(ref string, opts InstallOptions) (InstallReport, error) {
 
 	report := baseInstallReport("install", target, ctx)
 	binaryName := target.Manifest.BinaryName()
+	reporter.Step("checking binary...")
 	if binaryName == "" {
 		return report, fmt.Errorf("holon %q has no installable binary (composite with artifacts.primary only)", report.Holon)
 	}
@@ -71,7 +79,8 @@ func Install(ref string, opts InstallOptions) (InstallReport, error) {
 			return report, fmt.Errorf("artifact missing: %s", report.Artifact)
 		}
 
-		_, buildErr := ExecuteLifecycle(OperationBuild, ref)
+		reporter.Step("building...")
+		_, buildErr := ExecuteLifecycle(OperationBuild, ref, BuildOptions{Progress: progress.Silence()})
 		if buildErr != nil {
 			report.Notes = append(report.Notes, "build failed before install")
 			return report, buildErr
@@ -90,6 +99,7 @@ func Install(ref string, opts InstallOptions) (InstallReport, error) {
 	}
 
 	installedPath := filepath.Join(openv.OPBIN(), binaryName)
+	reporter.Step("copying to " + installedPath + "...")
 	if err := copyFile(artifactPath, installedPath); err != nil {
 		return report, fmt.Errorf("install %s: %w", binaryName, err)
 	}
@@ -99,6 +109,15 @@ func Install(ref string, opts InstallOptions) (InstallReport, error) {
 }
 
 func Uninstall(ref string) (InstallReport, error) {
+	return UninstallWithOptions(ref, InstallOptions{})
+}
+
+func UninstallWithOptions(ref string, opts InstallOptions) (InstallReport, error) {
+	reporter := opts.Progress
+	if reporter == nil {
+		reporter = progress.Silence()
+	}
+	reporter.Step("resolving " + normalizedTarget(ref) + "...")
 	target, err := ResolveTarget(ref)
 	if err == nil && target.ManifestErr != nil {
 		return baseInstallReport("uninstall", target, BuildContext{}), target.ManifestErr
@@ -127,6 +146,7 @@ func Uninstall(ref string) (InstallReport, error) {
 
 	installedPath := filepath.Join(openv.OPBIN(), binaryName)
 	report.Installed = installedPath
+	reporter.Step("removing " + installedPath + "...")
 	if removeErr := os.Remove(installedPath); removeErr != nil {
 		if os.IsNotExist(removeErr) {
 			report.Notes = append(report.Notes, "not installed")

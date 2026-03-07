@@ -627,6 +627,129 @@ func TestInstallCommandRejectsCompositeWithoutBinary(t *testing.T) {
 	}
 }
 
+func TestBuildCommandEmitsProgressAndSuggestions(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go command not available")
+	}
+
+	root := t.TempDir()
+	chdirForTest(t, root)
+
+	dir := filepath.Join(root, "demo")
+	if err := os.MkdirAll(filepath.Join(dir, "cmd", "demo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/demo\n\ngo 1.24.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "cmd", "demo", "main.go"), []byte("package main\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "holon.yaml"), []byte("schema: holon/v0\nkind: native\ncontract:\n  grpc: true\nbuild:\n  runner: go-module\nrequires:\n  commands: [go]\n  files: [go.mod]\nartifacts:\n  binary: demo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr := captureOutput(t, func() {
+		code := Run([]string{"build", dir}, "0.1.0-test")
+		if code != 0 {
+			t.Fatalf("build returned %d, want 0", code)
+		}
+	})
+
+	if !strings.Contains(stdout, "Operation: build") {
+		t.Fatalf("stdout missing lifecycle report: %q", stdout)
+	}
+	for _, expected := range []string{
+		"checking manifest...",
+		"validating prerequisites...",
+		"go build -o",
+		"✓ built demo in",
+		"Next steps:",
+		"op test demo",
+		"op install demo",
+		"op run demo:9090",
+	} {
+		if !strings.Contains(stderr, expected) {
+			t.Fatalf("stderr missing %q: %q", expected, stderr)
+		}
+	}
+}
+
+func TestBuildCommandJSONSuppressesProgressAndSuggestions(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go command not available")
+	}
+
+	root := t.TempDir()
+	chdirForTest(t, root)
+
+	dir := filepath.Join(root, "demo")
+	if err := os.MkdirAll(filepath.Join(dir, "cmd", "demo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/demo\n\ngo 1.24.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "cmd", "demo", "main.go"), []byte("package main\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "holon.yaml"), []byte("schema: holon/v0\nkind: native\ncontract:\n  grpc: true\nbuild:\n  runner: go-module\nrequires:\n  commands: [go]\n  files: [go.mod]\nartifacts:\n  binary: demo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr := captureOutput(t, func() {
+		code := Run([]string{"--format", "json", "build", dir}, "0.1.0-test")
+		if code != 0 {
+			t.Fatalf("build --format json returned %d, want 0", code)
+		}
+	})
+
+	if strings.TrimSpace(stderr) != "" {
+		t.Fatalf("stderr not empty for json build: %q", stderr)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(stdout), &payload); err != nil {
+		t.Fatalf("stdout is not valid json: %v\noutput=%s", err, stdout)
+	}
+}
+
+func TestBuildCommandQuietSuppressesProgressAndSuggestions(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go command not available")
+	}
+
+	root := t.TempDir()
+	chdirForTest(t, root)
+
+	dir := filepath.Join(root, "demo")
+	if err := os.MkdirAll(filepath.Join(dir, "cmd", "demo"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/demo\n\ngo 1.24.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "cmd", "demo", "main.go"), []byte("package main\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "holon.yaml"), []byte("schema: holon/v0\nkind: native\ncontract:\n  grpc: true\nbuild:\n  runner: go-module\nrequires:\n  commands: [go]\n  files: [go.mod]\nartifacts:\n  binary: demo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr := captureOutput(t, func() {
+		code := Run([]string{"build", "--quiet", dir}, "0.1.0-test")
+		if code != 0 {
+			t.Fatalf("build --quiet returned %d, want 0", code)
+		}
+	})
+
+	if !strings.Contains(stdout, "Operation: build") {
+		t.Fatalf("stdout missing lifecycle report: %q", stdout)
+	}
+	if strings.TrimSpace(stderr) != "" {
+		t.Fatalf("stderr not empty for quiet build: %q", stderr)
+	}
+}
+
 func TestUninstallCommand(t *testing.T) {
 	root := t.TempDir()
 	chdirForTest(t, root)
@@ -1189,6 +1312,22 @@ func TestParseGlobalFormat(t *testing.T) {
 	}
 }
 
+func TestParseGlobalOptions(t *testing.T) {
+	format, quiet, args, err := parseGlobalOptions([]string{"-q", "--format", "json", "build", "."})
+	if err != nil {
+		t.Fatalf("parseGlobalOptions returned error: %v", err)
+	}
+	if format != FormatJSON {
+		t.Fatalf("format = %q, want %q", format, FormatJSON)
+	}
+	if !quiet {
+		t.Fatal("quiet = false, want true")
+	}
+	if len(args) != 2 || args[0] != "build" || args[1] != "." {
+		t.Fatalf("args = %#v, want [build .]", args)
+	}
+}
+
 func captureStdout(t *testing.T, fn func()) string {
 	t.Helper()
 
@@ -1237,4 +1376,44 @@ func captureStderr(t *testing.T, fn func()) string {
 		t.Fatalf("read captured stderr: %v", err)
 	}
 	return buf.String()
+}
+
+func captureOutput(t *testing.T, fn func()) (string, string) {
+	t.Helper()
+
+	origStdout := os.Stdout
+	origStderr := os.Stderr
+	stdoutR, stdoutW, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stdout pipe: %v", err)
+	}
+	stderrR, stderrW, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("create stderr pipe: %v", err)
+	}
+	os.Stdout = stdoutW
+	os.Stderr = stderrW
+	defer func() {
+		os.Stdout = origStdout
+		os.Stderr = origStderr
+		_ = stdoutW.Close()
+		_ = stdoutR.Close()
+		_ = stderrW.Close()
+		_ = stderrR.Close()
+	}()
+
+	fn()
+
+	_ = stdoutW.Close()
+	_ = stderrW.Close()
+
+	var stdoutBuf bytes.Buffer
+	if _, err := io.Copy(&stdoutBuf, stdoutR); err != nil {
+		t.Fatalf("read captured stdout: %v", err)
+	}
+	var stderrBuf bytes.Buffer
+	if _, err := io.Copy(&stderrBuf, stderrR); err != nil {
+		t.Fatalf("read captured stderr: %v", err)
+	}
+	return stdoutBuf.String(), stderrBuf.String()
 }

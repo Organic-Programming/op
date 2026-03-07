@@ -7,9 +7,13 @@ import (
 	"strings"
 
 	"github.com/organic-programming/grace-op/internal/holons"
+	"github.com/organic-programming/grace-op/internal/suggest"
 )
 
-func cmdLifecycle(format Format, operation holons.Operation, args []string) int {
+func cmdLifecycle(format Format, globalQuiet bool, operation holons.Operation, args []string) int {
+	ui, args, _ := extractQuietFlag(args)
+	quiet := globalQuiet || ui.Quiet
+
 	// Parse build-specific flags before the positional argument.
 	var opts holons.BuildOptions
 	var positional []string
@@ -41,8 +45,18 @@ func cmdLifecycle(format Format, operation holons.Operation, args []string) int 
 		target = positional[0]
 	}
 
+	printer := commandProgress(format, quiet)
+	if operation == holons.OperationBuild || operation == holons.OperationTest || operation == holons.OperationClean {
+		if !opts.DryRun {
+			opts.Progress = printer
+		}
+	}
+
 	report, err := holons.ExecuteLifecycle(operation, target, opts)
 	if err != nil {
+		if operation == holons.OperationBuild || operation == holons.OperationTest || operation == holons.OperationClean {
+			printer.Done(string(operation)+" failed", err)
+		}
 		if format == FormatJSON {
 			type errorReport struct {
 				holons.Report
@@ -64,8 +78,67 @@ func cmdLifecycle(format Format, operation holons.Operation, args []string) int 
 		return 1
 	}
 
+	if opts.DryRun && format != FormatJSON && !quiet {
+		printDryRunLifecyclePlan(os.Stderr, report, "")
+	} else {
+		switch operation {
+		case holons.OperationBuild:
+			printer.Done(fmt.Sprintf("built %s in %s", report.Holon, humanElapsed(printer)), nil)
+		case holons.OperationTest:
+			printer.Done(fmt.Sprintf("tests passed for %s in %s", report.Holon, humanElapsed(printer)), nil)
+		case holons.OperationClean:
+			printer.Done(fmt.Sprintf("cleaned %s in %s", report.Holon, humanElapsed(printer)), nil)
+		}
+	}
+
 	fmt.Println(formatLifecycleReport(format, report))
+	if manifest, holon := manifestForSuggestions(target); manifest != nil {
+		switch operation {
+		case holons.OperationBuild:
+			emitSuggestions(os.Stderr, format, quiet, suggest.Context{
+				Command:     "build",
+				Holon:       holon,
+				Manifest:    manifest,
+				BuildTarget: report.BuildTarget,
+				Artifact:    report.Artifact,
+			})
+		case holons.OperationTest:
+			emitSuggestions(os.Stderr, format, quiet, suggest.Context{
+				Command:     "test",
+				Holon:       holon,
+				Manifest:    manifest,
+				BuildTarget: report.BuildTarget,
+				Artifact:    report.Artifact,
+			})
+		case holons.OperationClean:
+			emitSuggestions(os.Stderr, format, quiet, suggest.Context{
+				Command:  "clean",
+				Holon:    holon,
+				Manifest: manifest,
+			})
+		}
+	}
 	return 0
+}
+
+func printDryRunLifecyclePlan(w *os.File, report holons.Report, indent string) {
+	if indent == "" {
+		fmt.Fprintln(w, "checking manifest...")
+		fmt.Fprintln(w, "validating prerequisites...")
+	}
+	for _, command := range report.Commands {
+		line := command
+		if strings.HasPrefix(command, "build_member ") {
+			line = "building member: " + strings.TrimPrefix(command, "build_member ")
+		}
+		fmt.Fprintf(w, "%s%s\n", indent, line)
+	}
+	for _, child := range report.Children {
+		printDryRunLifecyclePlan(w, child, indent+"  ")
+	}
+	if indent == "" && report.Artifact != "" {
+		fmt.Fprintln(w, "verifying artifact...")
+	}
 }
 
 func formatLifecycleReport(format Format, report holons.Report) string {

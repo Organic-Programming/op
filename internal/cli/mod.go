@@ -8,9 +8,10 @@ import (
 	"text/tabwriter"
 
 	opmod "github.com/organic-programming/grace-op/internal/mod"
+	"github.com/organic-programming/grace-op/internal/suggest"
 )
 
-func cmdMod(format Format, args []string) int {
+func cmdMod(format Format, globalQuiet bool, args []string) int {
 	if len(args) == 0 {
 		printModUsage()
 		return 1
@@ -18,21 +19,21 @@ func cmdMod(format Format, args []string) int {
 
 	switch args[0] {
 	case "init":
-		return cmdModInit(format, args[1:])
+		return cmdModInit(format, globalQuiet, args[1:])
 	case "add":
-		return cmdModAdd(format, args[1:])
+		return cmdModAdd(format, globalQuiet, args[1:])
 	case "remove":
-		return cmdModRemove(format, args[1:])
+		return cmdModRemove(format, globalQuiet, args[1:])
 	case "tidy":
-		return cmdModTidy(format, args[1:])
+		return cmdModTidy(format, globalQuiet, args[1:])
 	case "pull":
-		return cmdModPull(format, args[1:])
+		return cmdModPull(format, globalQuiet, args[1:])
 	case "update":
-		return cmdModUpdate(format, args[1:])
+		return cmdModUpdate(format, globalQuiet, args[1:])
 	case "list":
-		return cmdModList(format, args[1:])
+		return cmdModList(format, globalQuiet, args[1:])
 	case "graph":
-		return cmdModGraph(format, args[1:])
+		return cmdModGraph(format, globalQuiet, args[1:])
 	case "help", "--help", "-h":
 		printModUsage()
 		return 0
@@ -43,7 +44,9 @@ func cmdMod(format Format, args []string) int {
 	}
 }
 
-func cmdModInit(format Format, args []string) int {
+func cmdModInit(format Format, globalQuiet bool, args []string) int {
+	ui, args, _ := extractQuietFlag(args)
+	quiet := globalQuiet || ui.Quiet
 	if len(args) > 1 {
 		fmt.Fprintln(os.Stderr, "usage: op mod init [holon-path]")
 		return 1
@@ -64,10 +67,13 @@ func cmdModInit(format Format, args []string) int {
 		return 0
 	}
 	fmt.Printf("created %s\n", result.ModFile)
+	emitSuggestions(os.Stderr, format, quiet, suggest.Context{Command: "mod init"})
 	return 0
 }
 
-func cmdModAdd(format Format, args []string) int {
+func cmdModAdd(format Format, globalQuiet bool, args []string) int {
+	ui, args, _ := extractQuietFlag(args)
+	quiet := globalQuiet || ui.Quiet
 	if len(args) < 1 || len(args) > 2 {
 		fmt.Fprintln(os.Stderr, "usage: op mod add <module> [version]")
 		return 1
@@ -98,10 +104,12 @@ func cmdModAdd(format Format, args []string) int {
 	default:
 		fmt.Printf("added %s@%s\n", dep.Path, dep.Version)
 	}
+	emitSuggestions(os.Stderr, format, quiet, suggest.Context{Command: "mod add"})
 	return 0
 }
 
-func cmdModRemove(format Format, args []string) int {
+func cmdModRemove(format Format, globalQuiet bool, args []string) int {
+	_, args, _ = extractQuietFlag(args)
 	if len(args) != 1 {
 		fmt.Fprintln(os.Stderr, "usage: op mod remove <module>")
 		return 1
@@ -121,18 +129,23 @@ func cmdModRemove(format Format, args []string) int {
 	return 0
 }
 
-func cmdModTidy(format Format, args []string) int {
+func cmdModTidy(format Format, globalQuiet bool, args []string) int {
+	ui, args, _ := extractQuietFlag(args)
+	quiet := globalQuiet || ui.Quiet
 	if len(args) != 0 {
 		fmt.Fprintln(os.Stderr, "usage: op mod tidy")
 		return 1
 	}
 
-	result, err := opmod.Tidy(".")
+	printer := commandProgress(format, quiet)
+	result, err := opmod.Tidy(".", opmod.Options{Progress: printer})
 	if err != nil {
+		printer.Done("mod tidy failed", err)
 		fmt.Fprintf(os.Stderr, "op mod tidy: %v\n", err)
 		return 1
 	}
 
+	printer.Done(fmt.Sprintf("tidied dependencies in %s", humanElapsed(printer)), nil)
 	if format == FormatJSON {
 		printJSON(result)
 		return 0
@@ -145,21 +158,27 @@ func cmdModTidy(format Format, args []string) int {
 			fmt.Printf("  %s\n", entry)
 		}
 	}
+	emitSuggestions(os.Stderr, format, quiet, suggest.Context{Command: "mod tidy"})
 	return 0
 }
 
-func cmdModPull(format Format, args []string) int {
+func cmdModPull(format Format, globalQuiet bool, args []string) int {
+	ui, args, _ := extractQuietFlag(args)
+	quiet := globalQuiet || ui.Quiet
 	if len(args) != 0 {
 		fmt.Fprintln(os.Stderr, "usage: op mod pull")
 		return 1
 	}
 
-	result, err := opmod.Pull(".")
+	printer := commandProgress(format, quiet)
+	result, err := opmod.Pull(".", opmod.Options{Progress: printer})
 	if err != nil {
+		printer.Done("mod pull failed", err)
 		fmt.Fprintf(os.Stderr, "op mod pull: %v\n", err)
 		return 1
 	}
 
+	printer.Done(fmt.Sprintf("pulled %d dependencies in %s", len(result.Fetched), humanElapsed(printer)), nil)
 	if format == FormatJSON {
 		printJSON(result)
 		return 0
@@ -172,10 +191,13 @@ func cmdModPull(format Format, args []string) int {
 	for _, dep := range result.Fetched {
 		fmt.Printf("  %s@%s -> %s\n", dep.Path, dep.Version, dep.CachePath)
 	}
+	emitSuggestions(os.Stderr, format, quiet, suggest.Context{Command: "mod pull"})
 	return 0
 }
 
-func cmdModUpdate(format Format, args []string) int {
+func cmdModUpdate(format Format, globalQuiet bool, args []string) int {
+	ui, args, _ := extractQuietFlag(args)
+	quiet := globalQuiet || ui.Quiet
 	if len(args) > 1 {
 		fmt.Fprintln(os.Stderr, "usage: op mod update [module]")
 		return 1
@@ -185,12 +207,15 @@ func cmdModUpdate(format Format, args []string) int {
 		target = args[0]
 	}
 
-	result, err := opmod.Update(".", target)
+	printer := commandProgress(format, quiet)
+	result, err := opmod.Update(".", target, opmod.Options{Progress: printer})
 	if err != nil {
+		printer.Done("mod update failed", err)
 		fmt.Fprintf(os.Stderr, "op mod update: %v\n", err)
 		return 1
 	}
 
+	printer.Done(fmt.Sprintf("updated %d dependencies in %s", len(result.Updated), humanElapsed(printer)), nil)
 	if format == FormatJSON {
 		printJSON(result)
 		return 0
@@ -206,7 +231,8 @@ func cmdModUpdate(format Format, args []string) int {
 	return 0
 }
 
-func cmdModList(format Format, args []string) int {
+func cmdModList(format Format, globalQuiet bool, args []string) int {
+	_, args, _ = extractQuietFlag(args)
 	if len(args) != 0 {
 		fmt.Fprintln(os.Stderr, "usage: op mod list")
 		return 1
@@ -242,7 +268,8 @@ func cmdModList(format Format, args []string) int {
 	return 0
 }
 
-func cmdModGraph(format Format, args []string) int {
+func cmdModGraph(format Format, globalQuiet bool, args []string) int {
+	_, args, _ = extractQuietFlag(args)
 	if len(args) != 0 {
 		fmt.Fprintln(os.Stderr, "usage: op mod graph")
 		return 1

@@ -7,13 +7,19 @@ import (
 	"strings"
 
 	"github.com/organic-programming/grace-op/internal/holons"
+	"github.com/organic-programming/grace-op/internal/suggest"
 )
 
-func cmdInstall(format Format, args []string) int {
+func cmdInstall(format Format, globalQuiet bool, args []string) int {
+	ui, args, _ := extractQuietFlag(args)
+	quiet := globalQuiet || ui.Quiet
+
 	var (
 		opts       holons.InstallOptions
 		positional []string
 	)
+	printer := commandProgress(format, quiet)
+	opts.Progress = printer
 
 	for _, arg := range args {
 		switch arg {
@@ -40,21 +46,39 @@ func cmdInstall(format Format, args []string) int {
 
 	report, err := holons.Install(target, opts)
 	if err != nil {
+		printer.Done("install failed", err)
 		return printInstallResult(format, report, err, "install")
 	}
-	return printInstallResult(format, report, nil, "install")
+	printer.Done(fmt.Sprintf("installed %s in %s", report.Binary, humanElapsed(printer)), nil)
+	exitCode := printInstallResult(format, report, nil, "install")
+	if manifest, holon := manifestForSuggestions(target); manifest != nil {
+		emitSuggestions(os.Stderr, format, quiet, suggest.Context{
+			Command:     "install",
+			Holon:       holon,
+			Manifest:    manifest,
+			BuildTarget: report.BuildTarget,
+			Installed:   report.Installed,
+		})
+	}
+	return exitCode
 }
 
-func cmdUninstall(format Format, args []string) int {
+func cmdUninstall(format Format, globalQuiet bool, args []string) int {
+	ui, args, _ := extractQuietFlag(args)
+	quiet := globalQuiet || ui.Quiet
+
 	if len(args) != 1 {
 		fmt.Fprintln(os.Stderr, "op uninstall: requires <holon>")
 		return 1
 	}
 
-	report, err := holons.Uninstall(args[0])
+	printer := commandProgress(format, quiet)
+	report, err := holons.UninstallWithOptions(args[0], holons.InstallOptions{Progress: printer})
 	if err != nil {
+		printer.Done("uninstall failed", err)
 		return printInstallResult(format, report, err, "uninstall")
 	}
+	printer.Done(fmt.Sprintf("uninstalled %s in %s", report.Binary, humanElapsed(printer)), nil)
 	return printInstallResult(format, report, nil, "uninstall")
 }
 

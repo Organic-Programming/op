@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+
+	"github.com/organic-programming/grace-op/internal/progress"
 )
 
 type Operation string
@@ -25,16 +27,18 @@ const (
 
 // BuildOptions captures CLI/build request overrides before manifest defaults are applied.
 type BuildOptions struct {
-	Target string
-	Mode   string
-	DryRun bool
+	Target   string
+	Mode     string
+	DryRun   bool
+	Progress progress.Reporter
 }
 
 // BuildContext is the canonical build request used by runners and artifact resolution.
 type BuildContext struct {
-	Target string
-	Mode   string
-	DryRun bool
+	Target   string
+	Mode     string
+	DryRun   bool
+	Progress progress.Reporter
 }
 
 type Report struct {
@@ -67,6 +71,10 @@ func ExecuteLifecycle(op Operation, ref string, opts ...BuildOptions) (Report, e
 	if len(opts) > 0 {
 		bo = opts[0]
 	}
+	reporter := bo.Progress
+	if reporter == nil {
+		reporter = progress.Silence()
+	}
 
 	target, err := ResolveTarget(ref)
 	if err != nil {
@@ -86,6 +94,7 @@ func ExecuteLifecycle(op Operation, ref string, opts ...BuildOptions) (Report, e
 	if op != OperationBuild {
 		ctx.DryRun = false
 	}
+	ctx.Progress = reporter
 
 	report := baseReport(op, target, ctx)
 	r, err := runnerFor(target.Manifest)
@@ -94,6 +103,8 @@ func ExecuteLifecycle(op Operation, ref string, opts ...BuildOptions) (Report, e
 	}
 
 	if op != OperationClean {
+		reporter.Step("checking manifest...")
+		reporter.Step("validating prerequisites...")
 		if err := preflight(target.Manifest, ctx); err != nil {
 			return report, err
 		}
@@ -109,6 +120,7 @@ func ExecuteLifecycle(op Operation, ref string, opts ...BuildOptions) (Report, e
 	case OperationBuild:
 		err = r.build(target.Manifest, ctx, &report)
 		if err == nil && !isAggregateBuildTarget(ctx.Target) {
+			reporter.Step("verifying artifact...")
 			err = resolveArtifact(target.Manifest, ctx, &report)
 		}
 		if err == nil && !ctx.DryRun && !isAggregateBuildTarget(ctx.Target) {
@@ -120,6 +132,7 @@ func ExecuteLifecycle(op Operation, ref string, opts ...BuildOptions) (Report, e
 	case OperationTest:
 		err = r.test(target.Manifest, ctx, &report)
 	case OperationClean:
+		reporter.Step("removing .op/...")
 		err = r.clean(target.Manifest, &report)
 	default:
 		err = fmt.Errorf("unsupported operation %q", op)
@@ -250,9 +263,10 @@ func resolveBuildContext(manifest *LoadedManifest, opts BuildOptions) (BuildCont
 	}
 
 	return BuildContext{
-		Target: target,
-		Mode:   mode,
-		DryRun: opts.DryRun,
+		Target:   target,
+		Mode:     mode,
+		DryRun:   opts.DryRun,
+		Progress: opts.Progress,
 	}, nil
 }
 
@@ -297,6 +311,7 @@ func (goModuleRunner) build(manifest *LoadedManifest, ctx BuildContext, report *
 	binaryPath := manifest.BinaryPath()
 	args := []string{"go", "build", "-o", binaryPath, manifest.GoMainPackage()}
 	report.Commands = append(report.Commands, commandString(args))
+	ctx.Progress.Step(commandString(args))
 	if ctx.DryRun {
 		return nil
 	}
@@ -317,6 +332,7 @@ func (goModuleRunner) test(manifest *LoadedManifest, ctx BuildContext, report *R
 	}
 	args := []string{"go", "test", "./..."}
 	report.Commands = append(report.Commands, commandString(args))
+	ctx.Progress.Step(commandString(args))
 	if output, err := runCommand(manifest.Dir, args); err != nil {
 		return fmt.Errorf("%s\n%s", err, output)
 	}
@@ -365,9 +381,11 @@ func (r cmakeRunner) build(manifest *LoadedManifest, ctx BuildContext, report *R
 	if err := os.MkdirAll(manifest.CMakeBuildDir(), 0755); err != nil {
 		return err
 	}
+	ctx.Progress.Step(commandString(configureArgs))
 	if output, err := runCommand(manifest.Dir, configureArgs); err != nil {
 		return fmt.Errorf("%s\n%s", err, output)
 	}
+	ctx.Progress.Step(commandString(buildArgs))
 	if output, err := runCommand(manifest.Dir, buildArgs); err != nil {
 		return fmt.Errorf("%s\n%s", err, output)
 	}
@@ -384,6 +402,7 @@ func (r cmakeRunner) test(manifest *LoadedManifest, ctx BuildContext, report *Re
 	config := cmakeBuildConfig(ctx.Mode)
 	listArgs := []string{"ctest", "--test-dir", manifest.CMakeBuildDir(), "-N", "-C", config}
 	report.Commands = append(report.Commands, commandString(listArgs))
+	ctx.Progress.Step(commandString(listArgs))
 	listOutput, err := runCommand(manifest.Dir, listArgs)
 	if err != nil {
 		return fmt.Errorf("%s\n%s", err, listOutput)
@@ -394,6 +413,7 @@ func (r cmakeRunner) test(manifest *LoadedManifest, ctx BuildContext, report *Re
 
 	testArgs := []string{"ctest", "--test-dir", manifest.CMakeBuildDir(), "--output-on-failure", "-C", config}
 	report.Commands = append(report.Commands, commandString(testArgs))
+	ctx.Progress.Step(commandString(testArgs))
 	if output, err := runCommand(manifest.Dir, testArgs); err != nil {
 		return fmt.Errorf("%s\n%s", err, output)
 	}
@@ -452,10 +472,12 @@ func (r recipeRunner) build(manifest *LoadedManifest, ctx BuildContext, report *
 		}
 
 		for _, name := range targets {
+			ctx.Progress.Step("building target: " + name)
 			childReport, err := ExecuteLifecycle(OperationBuild, manifest.Dir, BuildOptions{
-				Target: name,
-				Mode:   ctx.Mode,
-				DryRun: ctx.DryRun,
+				Target:   name,
+				Mode:     ctx.Mode,
+				DryRun:   ctx.DryRun,
+				Progress: ctx.Progress.Child(),
 			})
 			report.Children = append(report.Children, childReport)
 			if err != nil {
@@ -524,10 +546,12 @@ func (recipeRunner) stepBuildMember(manifest *LoadedManifest, ctx BuildContext, 
 		return fmt.Errorf("build_member %q path: %w", memberID, err)
 	}
 	report.Commands = append(report.Commands, "build_member "+memberID)
+	ctx.Progress.Step("building member: " + memberID)
 	childReport, err := ExecuteLifecycle(OperationBuild, memberDir, BuildOptions{
-		Target: ctx.Target,
-		Mode:   ctx.Mode,
-		DryRun: ctx.DryRun,
+		Target:   ctx.Target,
+		Mode:     ctx.Mode,
+		DryRun:   ctx.DryRun,
+		Progress: ctx.Progress.Child(),
 	})
 	report.Children = append(report.Children, childReport)
 	if err != nil {
@@ -551,6 +575,7 @@ func (recipeRunner) stepExec(manifest *LoadedManifest, ctx BuildContext, e *Reci
 		return fmt.Errorf("exec cwd %q: %w", e.Cwd, err)
 	}
 	report.Commands = append(report.Commands, fmt.Sprintf("(cwd=%s) %s", manifestRelativePath(manifest, cwd), commandString(e.Argv)))
+	ctx.Progress.Step(commandString(e.Argv))
 	if ctx.DryRun {
 		return nil
 	}
@@ -572,6 +597,7 @@ func (recipeRunner) stepCopy(manifest *LoadedManifest, ctx BuildContext, c *Reci
 		return fmt.Errorf("copy to %q: %w", c.To, err)
 	}
 	report.Commands = append(report.Commands, fmt.Sprintf("copy %s -> %s", c.From, c.To))
+	ctx.Progress.Step(fmt.Sprintf("copy %s -> %s", c.From, c.To))
 	if ctx.DryRun {
 		return nil
 	}
@@ -604,6 +630,7 @@ func (recipeRunner) stepAssertFile(manifest *LoadedManifest, ctx BuildContext, a
 		return fmt.Errorf("assert_file path %q: %w", a.Path, err)
 	}
 	report.Commands = append(report.Commands, "assert_file "+a.Path)
+	ctx.Progress.Step("assert_file " + a.Path)
 	if ctx.DryRun {
 		return nil
 	}
@@ -719,18 +746,18 @@ func sortedRecipeTargets(manifest *LoadedManifest) []string {
 	}
 
 	order := map[string]int{
-		"macos":               10,
-		"ios":                 20,
-		"ios-simulator":       21,
-		"tvos":                30,
-		"tvos-simulator":      31,
-		"watchos":             40,
-		"watchos-simulator":   41,
-		"visionos":            50,
-		"visionos-simulator":  51,
-		"android":             60,
-		"linux":               70,
-		"windows":             80,
+		"macos":              10,
+		"ios":                20,
+		"ios-simulator":      21,
+		"tvos":               30,
+		"tvos-simulator":     31,
+		"watchos":            40,
+		"watchos-simulator":  41,
+		"visionos":           50,
+		"visionos-simulator": 51,
+		"android":            60,
+		"linux":              70,
+		"windows":            80,
 	}
 
 	sort.Slice(targets, func(i, j int) bool {

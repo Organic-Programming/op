@@ -5,19 +5,21 @@ import (
 	"os"
 	"strings"
 
+	"github.com/organic-programming/grace-op/internal/suggest"
 	"github.com/organic-programming/grace-op/internal/who"
+	sophiapb "github.com/organic-programming/sophia-who/gen/go/sophia_who/v1"
 
 	"google.golang.org/protobuf/proto"
 )
 
-func cmdWho(format Format, verb string, args []string) int {
+func cmdWho(format Format, globalQuiet bool, verb string, args []string) int {
 	switch verb {
 	case "list":
 		return cmdWhoList(format, args)
 	case "show":
 		return cmdWhoShow(format, args)
 	case "new":
-		return cmdWhoNew(format, args)
+		return cmdWhoNew(format, globalQuiet, args)
 	default:
 		fmt.Fprintf(os.Stderr, "op %s: unsupported identity verb\n", verb)
 		return 1
@@ -61,7 +63,11 @@ func cmdWhoShow(format Format, args []string) int {
 	return 0
 }
 
-func cmdWhoNew(format Format, args []string) int {
+func cmdWhoNew(format Format, globalQuiet bool, args []string) int {
+	ui, args, _ := extractQuietFlag(args)
+	quiet := globalQuiet || ui.Quiet
+	printer := commandProgress(format, quiet)
+
 	payload, err := whoNewPayload(args)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "op new: %v\n", err)
@@ -69,23 +75,40 @@ func cmdWhoNew(format Format, args []string) int {
 	}
 
 	var resp proto.Message
+	var createdResp *sophiapb.CreateIdentityResponse
 	if payload == "" {
 		created, createErr := who.CreateInteractive(os.Stdin, os.Stdout)
 		if createErr != nil {
+			printer.Done("birth failed", createErr)
 			fmt.Fprintf(os.Stderr, "op new: %v\n", createErr)
 			return 1
 		}
 		resp = created
+		createdResp = created
 	} else {
 		created, createErr := who.CreateFromJSON(payload)
 		if createErr != nil {
+			printer.Done("birth failed", createErr)
 			fmt.Fprintf(os.Stderr, "op new: %v\n", createErr)
 			return 1
 		}
 		resp = created
+		createdResp = created
 	}
 
+	if createdResp != nil && createdResp.GetIdentity() != nil {
+		name := strings.TrimSpace(createdResp.GetIdentity().GetGivenName() + " " + createdResp.GetIdentity().GetFamilyName())
+		if name != "" {
+			printer.Done("Born: "+name, nil)
+		}
+	}
 	printFormattedResponse(format, resp)
+	if createdResp != nil && createdResp.GetIdentity() != nil {
+		holon := strings.ToLower(strings.TrimSpace(createdResp.GetIdentity().GetGivenName() + "-" + strings.TrimSuffix(createdResp.GetIdentity().GetFamilyName(), "?")))
+		holon = strings.ReplaceAll(holon, " ", "-")
+		holon = strings.Trim(holon, "-")
+		emitSuggestions(os.Stderr, format, quiet, suggest.Context{Command: "new", Holon: holon})
+	}
 	return 0
 }
 
