@@ -17,49 +17,73 @@ service OPService {
   // --- OP's own RPCs ---
 
   // Discover scans for all known holons (local and cached).
+  // @example {"root_dir":"./organic-programming"}
   rpc Discover (DiscoverRequest) returns (DiscoverResponse);
 
   // Invoke dispatches a command to a holon by name.
+  // @example {"holon":"rob-go","args":["build","./cmd/rob-go"]}
   rpc Invoke (InvokeRequest) returns (InvokeResponse);
 
   // --- Promoted from Sophia Who? (identity management) ---
 
   // CreateIdentity creates a new holon identity.
+  // @example {"given_name":"Megg","family_name":"FFmpeg","motto":"Cut precisely.","composer":"B. ALTER","clade":"DETERMINISTIC_IO_BOUND","output_dir":"holons/megg-ffmpeg"}
   rpc CreateIdentity (sophia_who.v1.CreateIdentityRequest) returns (sophia_who.v1.CreateIdentityResponse);
 
   // ListIdentities lists all known holon identities.
+  // @example {}
   rpc ListIdentities (sophia_who.v1.ListIdentitiesRequest) returns (sophia_who.v1.ListIdentitiesResponse);
 
   // ShowIdentity retrieves a holon's identity by UUID.
+  // @example {"uuid":"31d98dfa-c08e-4db5-ab4f-180cecad50ef"}
   rpc ShowIdentity (sophia_who.v1.ShowIdentityRequest) returns (sophia_who.v1.ShowIdentityResponse);
 }
 
 // --- Discover ---
 
 message DiscoverRequest {
-  string root_dir = 1;  // Directory to scan. Default: current dir.
+  // Directory to scan. Defaults to the current working directory.
+  // @example "./organic-programming"
+  string root_dir = 1;
 }
 
 message DiscoverResponse {
+  // Holons discovered under the requested root and cache.
   repeated HolonEntry entries = 1;
-  repeated string path_binaries = 2;  // Holon binaries found in $PATH.
+
+  // Holon binaries found in $PATH.
+  repeated string path_binaries = 2;
 }
 
 message HolonEntry {
+  // Identity loaded from the holon's manifest.
   sophia_who.v1.HolonIdentity identity = 1;
-  string origin = 2;  // "local" or "cached"
+
+  // Discovery origin, usually "local" or "cached".
+  string origin = 2;
 }
 
 // --- Invoke ---
 
 message InvokeRequest {
-  string holon = 1;            // Holon name or alias (e.g. "who", "atlas").
-  repeated string args = 2;    // Arguments to pass to the holon.
+  // Holon name or alias to dispatch to.
+  // @required
+  // @example "rob-go"
+  string holon = 1;
+
+  // Arguments passed to the holon command.
+  // @example ["build","./cmd/rob-go"]
+  repeated string args = 2;
 }
 
 message InvokeResponse {
+  // Process exit code returned by the holon command.
   int32 exit_code = 1;
+
+  // Standard output captured from the command.
   string stdout = 2;
+
+  // Standard error captured from the command.
   string stderr = 3;
 }
 

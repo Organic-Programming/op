@@ -55,6 +55,10 @@ func Run(args []string, version string) int {
 		return cmdDiscover(format)
 	case "inspect":
 		return cmdInspect(format, rest)
+	case "mcp":
+		return cmdMCP(rest, version)
+	case "tools":
+		return cmdTools(format, rest)
 	case "env":
 		return cmdEnv(format, rest)
 	case "serve":
@@ -106,6 +110,8 @@ OP commands:
   op show <uuid-or-prefix>               display a holon identity natively
   op new [--json <payload>]              create a holon identity natively
   op inspect <slug|host:port> [--json]   inspect a holon's API offline or via Describe
+  op mcp <slug> [slug2...]               start an MCP server for one or more holons
+  op tools <slug> [--format <fmt>]       output tool definitions (openai, anthropic, mcp)
   op check [<holon-or-path>]             validate holon.yaml and prerequisites
   op build [<holon-or-path>] [flags]     build a holon artifact via its runner
   op test [<holon-or-path>]              run a holon's test contract

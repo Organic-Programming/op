@@ -22,6 +22,23 @@ description: |
   binary and gets access to every holon.
   
   OP does not implement domain logic. It routes.
+skills:
+  - name: discover-and-build
+    description: Discover a holon, inspect its contract, and build it locally.
+    when: User wants to find a holon in the workspace and turn it into a runnable artifact.
+    steps:
+      - Discover local holons with `op list .` or `op discover`
+      - Inspect the contract with `op inspect <holon>`
+      - Validate prerequisites with `op check <holon>`
+      - Build and install with `op build <holon>` then `op install <holon>`
+  - name: full-lifecycle
+    description: Drive a holon through validation, build, test, run, and cleanup.
+    when: User wants the complete Organic Programming lifecycle for a holon or recipe.
+    steps:
+      - Validate manifest and environment with `op check <holon>`
+      - Build and test the artifact with `op build <holon>` and `op test <holon>`
+      - Launch or dispatch with `op run <holon>` or `op <holon> <command>`
+      - Clean and uninstall when finished with `op clean <holon>` and `op uninstall <holon>`
 
 # ── Contract ──────────────────────────────────────────
 contract:

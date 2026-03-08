@@ -5,13 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
 	sdkconnect "github.com/organic-programming/go-holons/pkg/connect"
 	holonmetav1 "github.com/organic-programming/grace-op/gen/go/holonmeta/v1"
-	"github.com/organic-programming/grace-op/internal/holons"
 	inspectpkg "github.com/organic-programming/grace-op/pkg/inspect"
 )
 
@@ -83,27 +81,11 @@ func parseInspectArgs(format Format, args []string) (Format, string, error) {
 }
 
 func inspectLocal(ref string) (*inspectpkg.Document, error) {
-	target, err := holons.ResolveTarget(ref)
+	catalog, err := inspectpkg.LoadLocal(ref)
 	if err != nil {
 		return nil, err
 	}
-
-	doc, err := inspectpkg.ParseProtoDir(filepath.Join(target.Dir, "protos"))
-	if err != nil {
-		return nil, err
-	}
-
-	doc.Slug = filepath.Base(target.Dir)
-	if target.Identity != nil {
-		if strings.TrimSpace(target.Identity.Motto) != "" {
-			doc.Motto = strings.TrimSpace(target.Identity.Motto)
-		}
-	}
-	if target.Manifest != nil {
-		doc.Skills = manifestSkills(target.Manifest.Manifest.Skills)
-	}
-
-	return doc, nil
+	return catalog.Document, nil
 }
 
 func inspectRemote(address string) (*inspectpkg.Document, error) {
@@ -123,17 +105,4 @@ func inspectRemote(address string) (*inspectpkg.Document, error) {
 	}
 
 	return inspectpkg.FromDescribeResponse(response), nil
-}
-
-func manifestSkills(skills []holons.Skill) []inspectpkg.Skill {
-	out := make([]inspectpkg.Skill, 0, len(skills))
-	for _, skill := range skills {
-		out = append(out, inspectpkg.Skill{
-			Name:        strings.TrimSpace(skill.Name),
-			Description: strings.TrimSpace(skill.Description),
-			When:        strings.TrimSpace(skill.When),
-			Steps:       append([]string(nil), skill.Steps...),
-		})
-	}
-	return out
 }

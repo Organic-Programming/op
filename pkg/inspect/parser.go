@@ -9,12 +9,46 @@ import (
 
 	"github.com/jhump/protoreflect/desc"
 	"github.com/jhump/protoreflect/desc/protoparse"
+	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
 )
 
 // ParseProtoDir parses all .proto files under protoDir and returns a normalized
 // inspection document. Identity and skills are attached by the caller.
 func ParseProtoDir(protoDir string) (*Document, error) {
+	catalog, err := ParseCatalog(protoDir)
+	if err != nil {
+		return nil, err
+	}
+	return catalog.Document, nil
+}
+
+// Catalog is the parsed inspection document plus method bindings that can be
+// used to translate JSON tool calls into dynamic gRPC invocations.
+type Catalog struct {
+	Document *Document
+	Methods  []MethodBinding
+}
+
+// MethodBinding ties an inspect.Method back to its gRPC method descriptor.
+type MethodBinding struct {
+	ServiceName      string
+	ServiceShortName string
+	Method           Method
+	Descriptor       protoreflect.MethodDescriptor
+}
+
+func (m MethodBinding) ToolName(slug string) string {
+	return strings.TrimSpace(slug) + "." + m.ServiceShortName + "." + m.Method.Name
+}
+
+func (m MethodBinding) FullMethod() string {
+	return "/" + m.ServiceName + "/" + m.Method.Name
+}
+
+// ParseCatalog parses all .proto files under protoDir and returns both the
+// human-readable document and descriptor bindings for method invocation.
+func ParseCatalog(protoDir string) (*Catalog, error) {
 	absDir, err := filepath.Abs(protoDir)
 	if err != nil {
 		return nil, fmt.Errorf("resolve proto dir %s: %w", protoDir, err)
@@ -47,8 +81,10 @@ func ParseProtoDir(protoDir string) (*Document, error) {
 	}
 
 	builder := parserBuilder{inputFiles: inputFiles}
-	return &Document{
-		Services: builder.buildServices(files),
+	document, methods := builder.buildCatalog(files)
+	return &Catalog{
+		Document: document,
+		Methods:  methods,
 	}, nil
 }
 
@@ -56,27 +92,40 @@ type parserBuilder struct {
 	inputFiles map[string]struct{}
 }
 
-func (b parserBuilder) buildServices(files []*desc.FileDescriptor) []Service {
-	out := make([]Service, 0)
+func (b parserBuilder) buildCatalog(files []*desc.FileDescriptor) (*Document, []MethodBinding) {
+	document := &Document{
+		Services: make([]Service, 0),
+	}
+	methods := make([]MethodBinding, 0)
 	for _, file := range files {
 		for _, service := range file.GetServices() {
-			out = append(out, b.buildService(service))
+			serviceDoc, serviceMethods := b.buildService(service)
+			document.Services = append(document.Services, serviceDoc)
+			methods = append(methods, serviceMethods...)
 		}
 	}
-	return out
+	return document, methods
 }
 
-func (b parserBuilder) buildService(service *desc.ServiceDescriptor) Service {
+func (b parserBuilder) buildService(service *desc.ServiceDescriptor) (Service, []MethodBinding) {
 	meta := parseCommentBlock(sourceComments(service.GetSourceInfo()))
 	methods := make([]Method, 0, len(service.GetMethods()))
+	bindings := make([]MethodBinding, 0, len(service.GetMethods()))
 	for _, method := range service.GetMethods() {
-		methods = append(methods, b.buildMethod(method))
+		methodDoc := b.buildMethod(method)
+		methods = append(methods, methodDoc)
+		bindings = append(bindings, MethodBinding{
+			ServiceName:      service.GetFullyQualifiedName(),
+			ServiceShortName: ShortName(service.GetFullyQualifiedName()),
+			Method:           methodDoc,
+			Descriptor:       method.UnwrapMethod(),
+		})
 	}
 	return Service{
 		Name:        service.GetFullyQualifiedName(),
 		Description: meta.Description,
 		Methods:     methods,
-	}
+	}, bindings
 }
 
 func (b parserBuilder) buildMethod(method *desc.MethodDescriptor) Method {
@@ -127,6 +176,12 @@ func (b parserBuilder) buildField(field *desc.FieldDescriptor, seen map[string]b
 	if field.IsMap() {
 		out.MapKeyType = descriptorTypeName(field.GetMapKeyType())
 		out.MapValueType = descriptorTypeName(field.GetMapValueType())
+		if enumType := field.GetMapValueType().GetEnumType(); enumType != nil && b.shouldExpand(enumType.GetFile().GetName()) {
+			out.EnumValues = buildEnumValues(enumType)
+		}
+		if msgType := field.GetMapValueType().GetMessageType(); msgType != nil && !msgType.IsMapEntry() && b.shouldExpand(msgType.GetFile().GetName()) {
+			out.NestedFields = b.buildFields(msgType, seen)
+		}
 		return out
 	}
 
@@ -306,4 +361,16 @@ func descriptorTypeName(field *desc.FieldDescriptor) string {
 	default:
 		return strings.TrimPrefix(field.GetType().String(), "TYPE_")
 	}
+}
+
+// ShortName returns the terminal identifier of a fully qualified proto symbol.
+func ShortName(name string) string {
+	trimmed := strings.TrimPrefix(strings.TrimSpace(name), ".")
+	if trimmed == "" {
+		return ""
+	}
+	if idx := strings.LastIndex(trimmed, "."); idx >= 0 {
+		return trimmed[idx+1:]
+	}
+	return trimmed
 }
