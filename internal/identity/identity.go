@@ -3,6 +3,7 @@
 package identity
 
 import (
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,6 +37,23 @@ type Identity struct {
 
 	// Optional descriptive text often scaffolded by Sophia.
 	Description string `yaml:"description,omitempty"`
+}
+
+// Slug derives a normalized, lowercase-hyphenated identifier from the
+// holon's given_name and family_name. This is the canonical name users
+// pass to "op run" and "op build".
+func (id Identity) Slug() string {
+	parts := make([]string, 0, 2)
+	if g := strings.TrimSpace(id.GivenName); g != "" {
+		parts = append(parts, g)
+	}
+	if f := strings.TrimSpace(id.FamilyName); f != "" {
+		parts = append(parts, f)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.ToLower(strings.Join(parts, "-"))
 }
 
 // Clades enumerates valid computational nature classifications.

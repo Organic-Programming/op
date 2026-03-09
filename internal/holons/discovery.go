@@ -345,7 +345,13 @@ func filterHolonsBySlug(holons []LocalHolon, ref string) []LocalHolon {
 	trimmed := strings.TrimSpace(ref)
 	matches := make([]LocalHolon, 0)
 	for _, holon := range holons {
+		// Match by directory basename (traditional slug)
 		if filepath.Base(holon.Dir) == trimmed {
+			matches = append(matches, holon)
+			continue
+		}
+		// Match by identity-derived slug (given_name + family_name)
+		if idSlug := holon.Identity.Slug(); idSlug != "" && idSlug == trimmed {
 			matches = append(matches, holon)
 		}
 	}
@@ -447,6 +453,11 @@ func binaryLookupNames(target *Target, requested string) []string {
 	}
 	if target != nil {
 		names = append(names, filepath.Base(target.Dir))
+		if target.Identity != nil {
+			if idSlug := target.Identity.Slug(); idSlug != "" {
+				names = append(names, idSlug)
+			}
+		}
 	}
 	return uniqueNonEmpty(names)
 }

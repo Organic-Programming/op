@@ -178,8 +178,12 @@ func cmdDiscover(format Format) int {
 
 	entries := make([]discoverEntry, 0, len(located)+len(cached))
 	for _, h := range append(append([]holons.LocalHolon{}, located...), cached...) {
+		slug := h.Identity.Slug()
+		if slug == "" {
+			slug = filepath.Base(h.Dir)
+		}
 		entries = append(entries, discoverEntry{
-			Slug:         filepath.Base(h.Dir),
+			Slug:         slug,
 			UUID:         h.Identity.UUID,
 			GivenName:    h.Identity.GivenName,
 			FamilyName:   h.Identity.FamilyName,
