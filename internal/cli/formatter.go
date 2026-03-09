@@ -106,12 +106,13 @@ func formatListIdentitiesText(resp *opv1.ListIdentitiesResponse) string {
 
 	var b strings.Builder
 	w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(w, "UUID\tNAME\tCLADE\tSTATUS\tLANG\tORIGIN\tPATH")
+	fmt.Fprintln(w, "SLUG\tUUID\tNAME\tCLADE\tSTATUS\tLANG\tORIGIN\tPATH")
 	for _, entry := range resp.GetEntries() {
 		id := entry.GetIdentity()
 		fmt.Fprintf(
 			w,
-			"%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			"%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+			defaultDash(identitySlug(id)),
 			shortUUID(id.GetUuid()),
 			displayName(id),
 			cladeLabel(id.GetClade()),
@@ -130,12 +131,13 @@ func formatDiscoverText(resp *opv1.DiscoverResponse) string {
 
 	if len(resp.GetEntries()) > 0 {
 		w := tabwriter.NewWriter(&b, 0, 0, 2, ' ', 0)
-		fmt.Fprintln(w, "UUID\tNAME\tCLADE\tSTATUS\tLANG\tORIGIN\tPATH")
+		fmt.Fprintln(w, "SLUG\tUUID\tNAME\tCLADE\tSTATUS\tLANG\tORIGIN\tPATH")
 		for _, entry := range resp.GetEntries() {
 			id := entry.GetIdentity()
 			fmt.Fprintf(
 				w,
-				"%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				"%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
+				defaultDash(identitySlug(id)),
 				shortUUID(id.GetUuid()),
 				displayName(id),
 				cladeLabel(id.GetClade()),
@@ -198,6 +200,24 @@ func displayName(id *opv1.HolonIdentity) string {
 		return "-"
 	}
 	return strings.Join(parts, " ")
+}
+
+// identitySlug derives a lowercase-hyphenated slug from a proto identity.
+func identitySlug(id *opv1.HolonIdentity) string {
+	if id == nil {
+		return ""
+	}
+	parts := make([]string, 0, 2)
+	if g := strings.TrimSpace(id.GetGivenName()); g != "" {
+		parts = append(parts, g)
+	}
+	if f := strings.TrimSpace(id.GetFamilyName()); f != "" {
+		parts = append(parts, f)
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return strings.ToLower(strings.Join(parts, "-"))
 }
 
 func cladeLabel(clade opv1.Clade) string {
