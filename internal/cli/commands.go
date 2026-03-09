@@ -858,6 +858,9 @@ func commandForArtifact(manifest *holons.LoadedManifest, ctx holons.BuildContext
 			}
 			return nil, fmt.Errorf("artifact is not directly launchable: %s", artifactPath)
 		}
+		if isHTMLFile(artifactPath) {
+			return openFileCommand(artifactPath)
+		}
 		return exec.Command(artifactPath), nil
 	}
 
@@ -870,6 +873,27 @@ func commandForArtifact(manifest *holons.LoadedManifest, ctx holons.BuildContext
 
 func isMacAppBundle(path string) bool {
 	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(path)), ".app")
+}
+
+func isHTMLFile(path string) bool {
+	lower := strings.ToLower(strings.TrimSpace(path))
+	return strings.HasSuffix(lower, ".html") || strings.HasSuffix(lower, ".htm")
+}
+
+// openFileCommand returns an exec.Cmd that opens a file with the platform's
+// default handler (browser for HTML). On macOS the -W flag makes open(1) wait
+// until the launched app exits, which prevents op run from returning immediately.
+func openFileCommand(path string) (*exec.Cmd, error) {
+	switch runtime.GOOS {
+	case "darwin":
+		return exec.Command("open", "-W", path), nil
+	case "linux":
+		return exec.Command("xdg-open", path), nil
+	case "windows":
+		return exec.Command("cmd", "/c", "start", "", path), nil
+	default:
+		return nil, fmt.Errorf("cannot open %s on %s", path, runtime.GOOS)
+	}
 }
 
 func runForeground(cmd *exec.Cmd) error {
