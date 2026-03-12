@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/organic-programming/grace-op/internal/holons"
 	"github.com/organic-programming/grace-op/internal/identity"
 	opmod "github.com/organic-programming/grace-op/internal/mod"
 )
@@ -281,6 +282,237 @@ func TestMapHolonCommandToRPC(t *testing.T) {
 	}
 }
 
+func TestCommandForArtifactIncludesCompositeAssemblyEnv(t *testing.T) {
+	root := t.TempDir()
+	artifactPath := filepath.Join(root, "build", "app")
+	if err := os.MkdirAll(filepath.Dir(artifactPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(artifactPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := &holons.LoadedManifest{
+		Dir:  root,
+		Name: "gudule-greeting-flutter-rust",
+		Manifest: holons.Manifest{
+			Kind:       holons.KindComposite,
+			FamilyName: "Greeting-Flutter-Rust",
+			Transport:  "tcp",
+			Artifacts:  holons.ArtifactPaths{Primary: "build/app"},
+		},
+	}
+
+	cmd, err := commandForArtifact(manifest, holons.BuildContext{Target: "macos"}, "stdio://")
+	if err != nil {
+		t.Fatalf("commandForArtifact returned error: %v", err)
+	}
+
+	if got := envValue(cmd.Env, "OP_ASSEMBLY_FAMILY"); got != "Greeting-Flutter-Rust" {
+		t.Fatalf("OP_ASSEMBLY_FAMILY = %q, want %q", got, "Greeting-Flutter-Rust")
+	}
+	if got := envValue(cmd.Env, "OP_ASSEMBLY_TRANSPORT"); got != "tcp" {
+		t.Fatalf("OP_ASSEMBLY_TRANSPORT = %q, want %q", got, "tcp")
+	}
+}
+
+func TestCommandForInstalledArtifactIncludesCompositeAssemblyEnv(t *testing.T) {
+	root := t.TempDir()
+	binaryPath := filepath.Join(root, "gudule-greeting-flutter-rust")
+	if err := os.WriteFile(binaryPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	target := &holons.Target{
+		Manifest: &holons.LoadedManifest{
+			Dir:  root,
+			Name: "gudule-greeting-flutter-rust",
+			Manifest: holons.Manifest{
+				Kind:       holons.KindComposite,
+				FamilyName: "Greeting-Flutter-Rust",
+				Transport:  "tcp",
+			},
+		},
+	}
+
+	cmd, err := commandForInstalledArtifact(binaryPath, target, "stdio://")
+	if err != nil {
+		t.Fatalf("commandForInstalledArtifact returned error: %v", err)
+	}
+
+	if got := envValue(cmd.Env, "OP_ASSEMBLY_FAMILY"); got != "Greeting-Flutter-Rust" {
+		t.Fatalf("OP_ASSEMBLY_FAMILY = %q, want %q", got, "Greeting-Flutter-Rust")
+	}
+	if got := envValue(cmd.Env, "OP_ASSEMBLY_TRANSPORT"); got != "tcp" {
+		t.Fatalf("OP_ASSEMBLY_TRANSPORT = %q, want %q", got, "tcp")
+	}
+}
+
+func TestCommandForArtifactDoesNotAddAssemblyEnvForNativeHolons(t *testing.T) {
+	root := t.TempDir()
+	binaryPath := filepath.Join(root, ".op", "build", "bin", "gudule-daemon-greeting-rust")
+	if err := os.MkdirAll(filepath.Dir(binaryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(binaryPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := &holons.LoadedManifest{
+		Dir:  root,
+		Name: "gudule-daemon-greeting-rust",
+		Manifest: holons.Manifest{
+			Kind: holons.KindNative,
+			Artifacts: holons.ArtifactPaths{
+				Binary: "gudule-daemon-greeting-rust",
+			},
+		},
+	}
+
+	cmd, err := commandForArtifact(manifest, holons.BuildContext{Target: "macos"}, "tcp://127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("commandForArtifact returned error: %v", err)
+	}
+
+	if got := envValue(cmd.Env, "OP_ASSEMBLY_FAMILY"); got != "" {
+		t.Fatalf("OP_ASSEMBLY_FAMILY = %q, want empty", got)
+	}
+	if got := envValue(cmd.Env, "OP_ASSEMBLY_TRANSPORT"); got != "" {
+		t.Fatalf("OP_ASSEMBLY_TRANSPORT = %q, want empty", got)
+	}
+}
+
+func TestOpenAppBundleCommandPassesAssemblyEnvOnMacOS(t *testing.T) {
+	manifest := &holons.LoadedManifest{
+		Name: "gudule-greeting-flutter-rust",
+		Manifest: holons.Manifest{
+			Kind:       holons.KindComposite,
+			FamilyName: "Greeting-Flutter-Rust",
+			Transport:  "tcp",
+		},
+	}
+
+	cmd := openAppBundleCommand("/tmp/gudule-greeting-hostui-flutter.app", manifest)
+	args := strings.Join(cmd.Args, " ")
+	if !strings.Contains(args, "OP_ASSEMBLY_FAMILY=Greeting-Flutter-Rust") {
+		t.Fatalf("open args missing family env: %v", cmd.Args)
+	}
+	if !strings.Contains(args, "OP_ASSEMBLY_DISPLAY_FAMILY=Greeting-Flutter-Rust (Flutter UI)") {
+		t.Fatalf("open args missing display family env: %v", cmd.Args)
+	}
+	if !strings.Contains(args, "OP_ASSEMBLY_TRANSPORT=tcp") {
+		t.Fatalf("open args missing transport env: %v", cmd.Args)
+	}
+}
+
+func TestNormalizeMacOSAppBundleMetadataUsesCompositeIdentity(t *testing.T) {
+	bundle := filepath.Join(t.TempDir(), "Example.app")
+	contents := filepath.Join(bundle, "Contents")
+	appDir := filepath.Join(contents, "app")
+	if err := os.MkdirAll(appDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	plistPath := filepath.Join(contents, "Info.plist")
+	plist := `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleName</key>
+	<string>placeholder-app</string>
+	<key>CFBundleDisplayName</key>
+	<string>placeholder-app</string>
+	<key>CFBundleIdentifier</key>
+	<string>org.organicprogramming.placeholder</string>
+</dict>
+</plist>
+`
+	if err := os.WriteFile(plistPath, []byte(plist), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(appDir, "example.cfg"), []byte("java-options=-Xdock:name=placeholder-app\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	normalizeMacOSAppBundleMetadata(bundle, &holons.LoadedManifest{
+		Name: "gudule-greeting-compose-csharp",
+		Manifest: holons.Manifest{
+			Kind:       holons.KindComposite,
+			FamilyName: "Greeting-Compose-Csharp",
+		},
+	})
+
+	data, err := os.ReadFile(plistPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := string(data)
+	if !strings.Contains(content, "<string>Gudule Greeting-Compose-Csharp (Kotlin UI)</string>") {
+		t.Fatalf("normalized plist missing display name: %s", content)
+	}
+	if !strings.Contains(content, "<string>org.organicprogramming.gudule-greeting-compose-csharp</string>") {
+		t.Fatalf("normalized plist missing bundle identifier: %s", content)
+	}
+
+	cfgData, err := os.ReadFile(filepath.Join(appDir, "example.cfg"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(cfgData), "java-options=-Xdock:name=Gudule Greeting-Compose-Csharp (Kotlin UI)") {
+		t.Fatalf("normalized cfg missing dock name: %s", string(cfgData))
+	}
+}
+
+func TestCompositeDisplayFamilyLabelsWebAssemblies(t *testing.T) {
+	manifest := &holons.LoadedManifest{
+		Name: "gudule-greeting-go-web",
+		Manifest: holons.Manifest{
+			Kind:       holons.KindComposite,
+			FamilyName: "Greeting-Go-Web",
+		},
+	}
+
+	if got := compositeDisplayFamily(manifest); got != "Greeting-Go-Web (Web UI)" {
+		t.Fatalf("compositeDisplayFamily = %q, want %q", got, "Greeting-Go-Web (Web UI)")
+	}
+	if got := compositeBundleDisplayName(manifest); got != "Gudule Greeting-Go-Web (Web UI)" {
+		t.Fatalf("compositeBundleDisplayName = %q, want %q", got, "Gudule Greeting-Go-Web (Web UI)")
+	}
+}
+
+func TestCommandForArtifactPreservesTransportOverrideFromEnvironment(t *testing.T) {
+	t.Setenv("OP_ASSEMBLY_TRANSPORT", "stdio")
+
+	root := t.TempDir()
+	artifactPath := filepath.Join(root, "build", "app")
+	if err := os.MkdirAll(filepath.Dir(artifactPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(artifactPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	manifest := &holons.LoadedManifest{
+		Dir:  root,
+		Name: "gudule-greeting-flutter-go",
+		Manifest: holons.Manifest{
+			Kind:       holons.KindComposite,
+			FamilyName: "Greeting-Flutter-Go",
+			Transport:  "tcp",
+			Artifacts:  holons.ArtifactPaths{Primary: "build/app"},
+		},
+	}
+
+	cmd, err := commandForArtifact(manifest, holons.BuildContext{Target: "macos"}, "stdio://")
+	if err != nil {
+		t.Fatalf("commandForArtifact returned error: %v", err)
+	}
+
+	if got := envValue(cmd.Env, "OP_ASSEMBLY_TRANSPORT"); got != "stdio" {
+		t.Fatalf("OP_ASSEMBLY_TRANSPORT = %q, want %q", got, "stdio")
+	}
+}
+
 func TestDiscoverCommand(t *testing.T) {
 	root := t.TempDir()
 	chdirForTest(t, root)
@@ -329,6 +561,16 @@ func TestDiscoverCommand(t *testing.T) {
 	if !strings.Contains(output, "local") {
 		t.Fatalf("discover output missing origin: %q", output)
 	}
+}
+
+func envValue(env []string, key string) string {
+	prefix := key + "="
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			return strings.TrimPrefix(entry, prefix)
+		}
+	}
+	return ""
 }
 
 func TestDiscoverCommandJSONFormat(t *testing.T) {

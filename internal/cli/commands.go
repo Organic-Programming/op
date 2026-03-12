@@ -11,6 +11,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"syscall"
@@ -789,17 +790,25 @@ func resolveInstalledBinary(name string) string {
 }
 
 func commandForInstalledArtifact(path string, target *holons.Target, listenURI string) (*exec.Cmd, error) {
+	var manifest *holons.LoadedManifest
+	if target != nil {
+		manifest = target.Manifest
+	}
 	if info, err := os.Stat(path); err == nil && info.IsDir() {
 		if isMacAppBundle(path) && runtime.GOOS == "darwin" {
-			return exec.Command("open", "-W", path), nil
+			return openAppBundleCommand(path, manifest), nil
 		}
 		return nil, fmt.Errorf("artifact is not directly launchable: %s", path)
 	}
 	if isHTMLFile(path) {
-		return openFileCommand(path)
+		cmd, err := openFileCommand(path)
+		if err != nil {
+			return nil, err
+		}
+		return withCompositeRunEnv(cmd, manifest), nil
 	}
 	if target != nil && target.Manifest != nil && target.Manifest.Manifest.Kind == holons.KindComposite {
-		return exec.Command(path), nil
+		return withCompositeRunEnv(exec.Command(path), manifest), nil
 	}
 	return exec.Command(path, "serve", "--listen", listenURI), nil
 }
@@ -886,14 +895,18 @@ func commandForArtifact(manifest *holons.LoadedManifest, ctx holons.BuildContext
 		if info.IsDir() {
 			if isMacAppBundle(artifactPath) && runtime.GOOS == "darwin" {
 				// -W waits for the app to quit
-				return exec.Command("open", "-W", artifactPath), nil
+				return openAppBundleCommand(artifactPath, manifest), nil
 			}
 			return nil, fmt.Errorf("artifact is not directly launchable: %s", artifactPath)
 		}
 		if isHTMLFile(artifactPath) {
-			return openFileCommand(artifactPath)
+			cmd, err := openFileCommand(artifactPath)
+			if err != nil {
+				return nil, err
+			}
+			return withCompositeRunEnv(cmd, manifest), nil
 		}
-		return exec.Command(artifactPath), nil
+		return withCompositeRunEnv(exec.Command(artifactPath), manifest), nil
 	}
 
 	binaryPath := manifest.BinaryPath()
@@ -926,6 +939,281 @@ func openFileCommand(path string) (*exec.Cmd, error) {
 	default:
 		return nil, fmt.Errorf("cannot open %s on %s", path, runtime.GOOS)
 	}
+}
+
+func openAppBundleCommand(path string, manifest *holons.LoadedManifest) *exec.Cmd {
+	normalizeMacOSAppBundleMetadata(path, manifest)
+	args := []string{"-W"}
+	if manifest != nil && manifest.Manifest.Kind == holons.KindComposite {
+		displayFamily := compositeDisplayFamily(manifest)
+		args = append(args,
+			"--env", "OP_ASSEMBLY_FAMILY="+compositeRunEnvValue("OP_ASSEMBLY_FAMILY", manifest.Manifest.FamilyName),
+			"--env", "OP_ASSEMBLY_DISPLAY_FAMILY="+compositeRunEnvValue("OP_ASSEMBLY_DISPLAY_FAMILY", displayFamily),
+			"--env", "OP_ASSEMBLY_TRANSPORT="+compositeRunEnvValue("OP_ASSEMBLY_TRANSPORT", manifest.Manifest.Transport),
+		)
+	}
+	args = append(args, path)
+	return exec.Command("open", args...)
+}
+
+func withCompositeRunEnv(cmd *exec.Cmd, manifest *holons.LoadedManifest) *exec.Cmd {
+	if cmd == nil || manifest == nil || manifest.Manifest.Kind != holons.KindComposite {
+		return cmd
+	}
+
+	env := cmd.Env
+	if len(env) == 0 {
+		env = os.Environ()
+	}
+	env = setCommandEnv(env, "OP_ASSEMBLY_FAMILY", manifest.Manifest.FamilyName)
+	env = setCommandEnv(env, "OP_ASSEMBLY_DISPLAY_FAMILY", compositeDisplayFamily(manifest))
+	env = setCommandEnv(env, "OP_ASSEMBLY_TRANSPORT", manifest.Manifest.Transport)
+	cmd.Env = env
+	return cmd
+}
+
+func setCommandEnv(env []string, key, value string) []string {
+	prefix := key + "="
+	preserved := false
+	out := make([]string, 0, len(env)+1)
+	for _, entry := range env {
+		if strings.HasPrefix(entry, prefix) {
+			out = append(out, entry)
+			preserved = true
+			continue
+		}
+		out = append(out, entry)
+	}
+	if !preserved {
+		out = append(out, prefix+value)
+	}
+	return out
+}
+
+func compositeRunEnvValue(key, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok && strings.TrimSpace(value) != "" {
+		return value
+	}
+	return fallback
+}
+
+func normalizeMacOSAppBundleMetadata(path string, manifest *holons.LoadedManifest) {
+	if runtime.GOOS != "darwin" || manifest == nil || manifest.Manifest.Kind != holons.KindComposite || !isMacAppBundle(path) {
+		return
+	}
+
+	displayName := compositeBundleDisplayName(manifest)
+	if strings.TrimSpace(displayName) == "" {
+		return
+	}
+
+	plistPath := filepath.Join(path, "Contents", "Info.plist")
+	updates := map[string]string{
+		"CFBundleName":        displayName,
+		"CFBundleDisplayName": displayName,
+	}
+	if bundleID := compositeBundleIdentifier(manifest); bundleID != "" {
+		updates["CFBundleIdentifier"] = bundleID
+	}
+
+	changed, err := rewriteMacOSPlistStrings(plistPath, updates)
+	if err != nil || !changed {
+		normalizeMacOSAppLauncherConfig(path, displayName)
+		return
+	}
+
+	normalizeMacOSAppLauncherConfig(path, displayName)
+	_ = exec.Command("codesign", "--force", "--deep", "--sign", "-", path).Run()
+}
+
+func compositeBundleDisplayName(manifest *holons.LoadedManifest) string {
+	family := compositeDisplayFamily(manifest)
+	if family == "" {
+		return ""
+	}
+	if strings.HasPrefix(family, "Gudule ") {
+		return family
+	}
+	return "Gudule " + family
+}
+
+func compositeDisplayFamily(manifest *holons.LoadedManifest) string {
+	if manifest == nil {
+		return ""
+	}
+
+	family := strings.TrimSpace(manifest.Manifest.FamilyName)
+	if family == "" {
+		family = strings.TrimSpace(manifest.Name)
+	}
+	if family == "" {
+		return ""
+	}
+
+	label := compositeHostUILabel(family)
+	if label == "" || strings.Contains(family, "("+label+")") {
+		return family
+	}
+	return family + " (" + label + ")"
+}
+
+func compositeHostUILabel(family string) string {
+	switch compositeHostUIKey(family) {
+	case "compose":
+		return "Kotlin UI"
+	case "flutter":
+		return "Flutter UI"
+	case "swiftui":
+		return "SwiftUI"
+	case "dotnet":
+		return ".NET UI"
+	case "qt":
+		return "Qt UI"
+	case "web":
+		return "Web UI"
+	default:
+		return ""
+	}
+}
+
+func compositeHostUIKey(family string) string {
+	parts := strings.Split(strings.TrimSpace(family), "-")
+	if len(parts) < 2 {
+		return ""
+	}
+	if strings.EqualFold(parts[len(parts)-1], "web") {
+		return "web"
+	}
+	if len(parts) < 3 {
+		return ""
+	}
+	return strings.ToLower(parts[1])
+}
+
+func compositeBundleIdentifier(manifest *holons.LoadedManifest) string {
+	if manifest == nil {
+		return ""
+	}
+
+	name := strings.TrimSpace(manifest.Name)
+	if name == "" {
+		return ""
+	}
+
+	sanitized := strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'a' && r <= 'z':
+			return r
+		case r >= 'A' && r <= 'Z':
+			return r
+		case r >= '0' && r <= '9':
+			return r
+		case r == '.' || r == '-':
+			return r
+		default:
+			return '-'
+		}
+	}, name)
+	return "org.organicprogramming." + sanitized
+}
+
+func rewriteMacOSPlistStrings(path string, updates map[string]string) (bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+
+	content := string(data)
+	changed := false
+	for key, value := range updates {
+		next, updated := upsertPlistString(content, key, value)
+		if updated {
+			changed = true
+			content = next
+		}
+	}
+
+	if !changed {
+		return false, nil
+	}
+	return true, os.WriteFile(path, []byte(content), 0o644)
+}
+
+func upsertPlistString(content, key, value string) (string, bool) {
+	escapedValue := xmlPlistEscape(value)
+	re := regexp.MustCompile(`(?s)<key>` + regexp.QuoteMeta(key) + `</key>\s*<string>.*?</string>`)
+	replacement := "<key>" + key + "</key>\n\t<string>" + escapedValue + "</string>"
+	if re.MatchString(content) {
+		updated := re.ReplaceAllString(content, replacement)
+		return updated, updated != content
+	}
+
+	insert := replacement + "\n"
+	if strings.Contains(content, "</dict>") {
+		updated := strings.Replace(content, "</dict>", "\t"+insert+"</dict>", 1)
+		return updated, updated != content
+	}
+	return content, false
+}
+
+func normalizeMacOSAppLauncherConfig(bundlePath, displayName string) {
+	cfgDir := filepath.Join(bundlePath, "Contents", "app")
+	entries, err := os.ReadDir(cfgDir)
+	if err != nil {
+		return
+	}
+
+	changedAny := false
+	for _, entry := range entries {
+		if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".cfg") {
+			continue
+		}
+		cfgPath := filepath.Join(cfgDir, entry.Name())
+		changed, err := rewriteMacOSDockName(cfgPath, displayName)
+		if err == nil && changed {
+			changedAny = true
+		}
+	}
+
+	if changedAny {
+		_ = exec.Command("codesign", "--force", "--deep", "--sign", "-", bundlePath).Run()
+	}
+}
+
+func rewriteMacOSDockName(path, displayName string) (bool, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+
+	content := string(data)
+	line := "java-options=-Xdock:name=" + displayName
+	re := regexp.MustCompile(`(?m)^java-options=-Xdock:name=.*$`)
+	if re.MatchString(content) {
+		updated := re.ReplaceAllString(content, line)
+		if updated == content {
+			return false, nil
+		}
+		return true, os.WriteFile(path, []byte(updated), 0o644)
+	}
+
+	if !strings.HasSuffix(content, "\n") {
+		content += "\n"
+	}
+	content += line + "\n"
+	return true, os.WriteFile(path, []byte(content), 0o644)
+}
+
+var plistEscaper = strings.NewReplacer(
+	"&", "&amp;",
+	"<", "&lt;",
+	">", "&gt;",
+	"\"", "&quot;",
+	"'", "&apos;",
+)
+
+func xmlPlistEscape(value string) string {
+	return plistEscaper.Replace(value)
 }
 
 func runForeground(cmd *exec.Cmd) error {
