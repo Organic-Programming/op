@@ -1,6 +1,7 @@
 package holons
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -13,6 +14,58 @@ func writeRecipeManifest(t *testing.T, dir, yaml string) {
 	if err := os.WriteFile(filepath.Join(dir, ManifestFileName), []byte(yaml), 0644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func withBundleSigningTestSeams(t *testing.T, hostPlatform string, runner func(dir, artifactRef string) (string, error)) {
+	t.Helper()
+
+	prevHostPlatform := bundleSigningHostPlatform
+	prevRunner := runBundleCodesign
+	bundleSigningHostPlatform = func() string { return hostPlatform }
+	if runner != nil {
+		runBundleCodesign = runner
+	}
+	t.Cleanup(func() {
+		bundleSigningHostPlatform = prevHostPlatform
+		runBundleCodesign = prevRunner
+	})
+}
+
+func writeFakeCodesignCommand(t *testing.T, dir string) {
+	t.Helper()
+
+	path := filepath.Join(dir, "codesign")
+	data := []byte("#!/bin/sh\nbundle=\"$5\"\nmkdir -p \"$bundle/Contents/_CodeSignature\"\nprintf 'signed\\n' > \"$bundle/Contents/_CodeSignature/CodeResources\"\n")
+	mode := os.FileMode(0o755)
+	if runtimePlatform() == "windows" {
+		path += ".bat"
+		data = []byte("@echo off\r\nset bundle=%~5\r\nmkdir \"%bundle%\\Contents\\_CodeSignature\" >nul 2>nul\r\necho signed> \"%bundle%\\Contents\\_CodeSignature\\CodeResources\"\r\n")
+		mode = 0o644
+	}
+	if err := os.WriteFile(path, data, mode); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func writeBundleFixture(t *testing.T, root, rel string) {
+	t.Helper()
+
+	binaryPath := filepath.Join(root, filepath.FromSlash(rel), "Contents", "MacOS", "Demo")
+	if err := os.MkdirAll(filepath.Dir(binaryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(binaryPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func hasEntryContaining(values []string, needle string) bool {
+	for _, value := range values {
+		if strings.Contains(value, needle) {
+			return true
+		}
+	}
+	return false
 }
 
 func TestLoadManifestAcceptsCompositeRecipe(t *testing.T) {
@@ -786,5 +839,212 @@ artifacts:
 	}
 	if !foundLinuxCommand {
 		t.Fatalf("expected child commands to reflect propagated target/mode, got %v", child.Commands)
+	}
+}
+
+func TestRecipeRunnerAutoSignsBundleBeforeAssertFile(t *testing.T) {
+	root := t.TempDir()
+	chdirForHolonTest(t, root)
+	writeBundleFixture(t, root, "app/Demo.app")
+
+	toolDir := t.TempDir()
+	writeFakeCodesignCommand(t, toolDir)
+	t.Setenv("PATH", toolDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	withBundleSigningTestSeams(t, "darwin", nil)
+
+	writeRecipeManifest(t, root, `schema: holon/v0
+kind: composite
+build:
+  runner: recipe
+  members:
+    - id: app
+      path: app
+      type: component
+  targets:
+    macos:
+      steps:
+        - assert_file:
+            path: app/Demo.app/Contents/_CodeSignature/CodeResources
+artifacts:
+  primary: app/Demo.app
+`)
+
+	report, err := ExecuteLifecycle(OperationBuild, root, BuildOptions{Target: "macos"})
+	if err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "app", "Demo.app", "Contents", "_CodeSignature", "CodeResources")); err != nil {
+		t.Fatalf("signed bundle missing CodeResources: %v", err)
+	}
+	if len(report.Commands) == 0 || report.Commands[0] != "codesign --force --deep --sign - app/Demo.app" {
+		t.Fatalf("expected first command to be codesign, got %v", report.Commands)
+	}
+	if !hasEntryContaining(report.Notes, "signed (ad-hoc): app/Demo.app") {
+		t.Fatalf("expected signing note, got %v", report.Notes)
+	}
+}
+
+func TestRecipeRunnerSkipsBundleSigningWhenNoSignSet(t *testing.T) {
+	root := t.TempDir()
+	chdirForHolonTest(t, root)
+	writeBundleFixture(t, root, "app/Demo.app")
+
+	withBundleSigningTestSeams(t, "darwin", func(dir, artifactRef string) (string, error) {
+		t.Fatalf("runBundleCodesign should not be called for --no-sign")
+		return "", nil
+	})
+
+	writeRecipeManifest(t, root, `schema: holon/v0
+kind: composite
+build:
+  runner: recipe
+  members:
+    - id: app
+      path: app
+      type: component
+  targets:
+    macos:
+      steps:
+        - assert_file:
+            path: app/Demo.app
+artifacts:
+  primary: app/Demo.app
+`)
+
+	report, err := ExecuteLifecycle(OperationBuild, root, BuildOptions{Target: "macos", NoSign: true})
+	if err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+	if hasEntryContaining(report.Commands, "codesign --force --deep --sign - app/Demo.app") {
+		t.Fatalf("did not expect codesign command, got %v", report.Commands)
+	}
+	if !hasEntryContaining(report.Notes, "skip signing (--no-sign): app/Demo.app") {
+		t.Fatalf("expected no-sign note, got %v", report.Notes)
+	}
+}
+
+func TestRecipeRunnerSkipsBundleSigningOffDarwin(t *testing.T) {
+	root := t.TempDir()
+	chdirForHolonTest(t, root)
+	writeBundleFixture(t, root, "app/Demo.app")
+
+	withBundleSigningTestSeams(t, "linux", func(dir, artifactRef string) (string, error) {
+		t.Fatalf("runBundleCodesign should not be called off Darwin")
+		return "", nil
+	})
+
+	writeRecipeManifest(t, root, `schema: holon/v0
+kind: composite
+build:
+  runner: recipe
+  members:
+    - id: app
+      path: app
+      type: component
+  targets:
+    macos:
+      steps:
+        - assert_file:
+            path: app/Demo.app
+artifacts:
+  primary: app/Demo.app
+`)
+
+	report, err := ExecuteLifecycle(OperationBuild, root, BuildOptions{Target: "macos"})
+	if err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+	if !hasEntryContaining(report.Notes, "skip signing: not on macOS: app/Demo.app") {
+		t.Fatalf("expected not-on-macOS note, got %v", report.Notes)
+	}
+}
+
+func TestRecipeRunnerDoesNotAttemptSigningForNonBundleArtifacts(t *testing.T) {
+	root := t.TempDir()
+	chdirForHolonTest(t, root)
+	if err := os.MkdirAll(filepath.Join(root, "out"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "out", "result.bin"), []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	withBundleSigningTestSeams(t, "darwin", func(dir, artifactRef string) (string, error) {
+		t.Fatalf("runBundleCodesign should not be called for non-bundle artifacts")
+		return "", nil
+	})
+
+	writeRecipeManifest(t, root, `schema: holon/v0
+kind: composite
+build:
+  runner: recipe
+  members:
+    - id: out
+      path: out
+      type: component
+  targets:
+    macos:
+      steps:
+        - assert_file:
+            path: out/result.bin
+artifacts:
+  primary: out/result.bin
+`)
+
+	report, err := ExecuteLifecycle(OperationBuild, root, BuildOptions{Target: "macos"})
+	if err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+	if hasEntryContaining(report.Commands, "codesign") {
+		t.Fatalf("did not expect codesign command, got %v", report.Commands)
+	}
+	if hasEntryContaining(report.Notes, "sign") {
+		t.Fatalf("did not expect signing notes, got %v", report.Notes)
+	}
+}
+
+func TestRecipeRunnerDryRunPlansBundleSigningWithoutExecuting(t *testing.T) {
+	root := t.TempDir()
+	chdirForHolonTest(t, root)
+	writeBundleFixture(t, root, "app/Demo.app")
+
+	called := false
+	withBundleSigningTestSeams(t, "darwin", func(dir, artifactRef string) (string, error) {
+		called = true
+		return "", fmt.Errorf("unexpected bundle signing call for %s", artifactRef)
+	})
+
+	writeRecipeManifest(t, root, `schema: holon/v0
+kind: composite
+build:
+  runner: recipe
+  members:
+    - id: app
+      path: app
+      type: component
+  targets:
+    macos:
+      steps:
+        - assert_file:
+            path: app/Demo.app/Contents/_CodeSignature/CodeResources
+artifacts:
+  primary: app/Demo.app
+`)
+
+	report, err := ExecuteLifecycle(OperationBuild, root, BuildOptions{Target: "macos", DryRun: true})
+	if err != nil {
+		t.Fatalf("dry run failed: %v", err)
+	}
+	if called {
+		t.Fatal("runBundleCodesign was called during dry run")
+	}
+	if hasEntryContaining(report.Notes, "signed (ad-hoc):") {
+		t.Fatalf("did not expect success note in dry run, got %v", report.Notes)
+	}
+	if !hasEntryContaining(report.Commands, "codesign --force --deep --sign - app/Demo.app") {
+		t.Fatalf("expected planned codesign command, got %v", report.Commands)
+	}
+	if _, err := os.Stat(filepath.Join(root, "app", "Demo.app", "Contents", "_CodeSignature", "CodeResources")); !os.IsNotExist(err) {
+		t.Fatalf("dry run should not have created CodeResources: %v", err)
 	}
 }

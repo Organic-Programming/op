@@ -137,6 +137,7 @@ Build flags:
   --target <macos|linux|windows|ios|ios-simulator|tvos|tvos-simulator|watchos|watchos-simulator|visionos|visionos-simulator|android|all>   platform target (default: current OS)
   --mode <debug|release|profile>               build mode (default: debug)
   --dry-run                                    print resolved plan, do not execute
+  --no-sign                                    skip automatic ad-hoc signing for bundle artifacts
 
 Install flags:
   --no-build                                   fail if the artifact is missing instead of building

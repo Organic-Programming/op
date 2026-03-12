@@ -1226,6 +1226,52 @@ func TestUninstallCommand(t *testing.T) {
 	}
 }
 
+func TestBuildCommandDryRunAcceptsNoSign(t *testing.T) {
+	root := t.TempDir()
+	chdirForTest(t, root)
+
+	dir := filepath.Join(root, "demo")
+	if err := os.MkdirAll(filepath.Join(dir, "app", "MyApp.app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := runtimeTargetForRunTest()
+	manifest := fmt.Sprintf("schema: holon/v0\nkind: composite\nbuild:\n  runner: recipe\n  members:\n    - id: app\n      path: app\n      type: component\n  targets:\n    %s:\n      steps:\n        - assert_file:\n            path: app/MyApp.app\nartifacts:\n  primary: app/MyApp.app\n", target)
+	if err := os.WriteFile(filepath.Join(dir, "holon.yaml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr := captureOutput(t, func() {
+		code := Run([]string{"build", "--dry-run", "--no-sign", "--target", target, dir}, "0.1.0-test")
+		if code != 0 {
+			t.Fatalf("build --dry-run --no-sign returned %d, want 0", code)
+		}
+	})
+
+	if strings.Contains(stderr, "codesign --force --deep --sign -") {
+		t.Fatalf("dry-run stderr should omit codesign when --no-sign is set:\nstdout=%s\nstderr=%s", stdout, stderr)
+	}
+	if !strings.Contains(stdout, "skip signing (--no-sign): app/MyApp.app") {
+		t.Fatalf("stdout missing no-sign note:\nstdout=%s\nstderr=%s", stdout, stderr)
+	}
+}
+
+func TestLifecycleCommandsRejectNoSignOutsideBuild(t *testing.T) {
+	for _, operation := range []string{"check", "test", "clean"} {
+		t.Run(operation, func(t *testing.T) {
+			stderr := captureStderr(t, func() {
+				code := Run([]string{operation, "--no-sign"}, "0.1.0-test")
+				if code != 1 {
+					t.Fatalf("%s returned %d, want 1", operation, code)
+				}
+			})
+
+			if !strings.Contains(stderr, fmt.Sprintf("op %s: unknown flag %q", operation, "--no-sign")) {
+				t.Fatalf("stderr missing unknown-flag message: %q", stderr)
+			}
+		})
+	}
+}
+
 func TestUninstallCommandJSONFormat(t *testing.T) {
 	root := t.TempDir()
 	chdirForTest(t, root)
