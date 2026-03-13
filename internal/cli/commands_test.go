@@ -435,10 +435,10 @@ func TestNormalizeMacOSAppBundleMetadataUsesCompositeIdentity(t *testing.T) {
 	}
 
 	normalizeMacOSAppBundleMetadata(bundle, &holons.LoadedManifest{
-		Name: "gudule-greeting-compose-csharp",
+		Name: "gudule-greeting-kotlinui-csharp",
 		Manifest: holons.Manifest{
 			Kind:       holons.KindComposite,
-			FamilyName: "Greeting-Compose-Csharp",
+			FamilyName: "Greeting-Kotlinui-Csharp",
 		},
 	})
 
@@ -447,10 +447,10 @@ func TestNormalizeMacOSAppBundleMetadataUsesCompositeIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(data)
-	if !strings.Contains(content, "<string>Gudule Greeting-Compose-Csharp (Kotlin UI)</string>") {
+	if !strings.Contains(content, "<string>Gudule Greeting-Kotlinui-Csharp (Kotlin UI)</string>") {
 		t.Fatalf("normalized plist missing display name: %s", content)
 	}
-	if !strings.Contains(content, "<string>org.organicprogramming.gudule-greeting-compose-csharp</string>") {
+	if !strings.Contains(content, "<string>org.organicprogramming.gudule-greeting-kotlinui-csharp</string>") {
 		t.Fatalf("normalized plist missing bundle identifier: %s", content)
 	}
 
@@ -458,7 +458,7 @@ func TestNormalizeMacOSAppBundleMetadataUsesCompositeIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(cfgData), "java-options=-Xdock:name=Gudule Greeting-Compose-Csharp (Kotlin UI)") {
+	if !strings.Contains(string(cfgData), "java-options=-Xdock:name=Gudule Greeting-Kotlinui-Csharp (Kotlin UI)") {
 		t.Fatalf("normalized cfg missing dock name: %s", string(cfgData))
 	}
 }

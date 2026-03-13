@@ -1060,7 +1060,7 @@ func compositeDisplayFamily(manifest *holons.LoadedManifest) string {
 
 func compositeHostUILabel(family string) string {
 	switch compositeHostUIKey(family) {
-	case "compose":
+	case "compose", "kotlinui":
 		return "Kotlin UI"
 	case "flutter":
 		return "Flutter UI"
