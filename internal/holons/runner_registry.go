@@ -80,11 +80,22 @@ func syncBinaryFromCandidates(manifest *LoadedManifest, candidates []string) err
 	if manifest == nil || manifestHasPrimaryArtifact(manifest) {
 		return nil
 	}
+	if candidate := firstExistingArtifactCandidate(candidates); candidate != "" {
+		return syncBinaryArtifact(manifest, candidate)
+	}
+	return missingBinaryFromCandidates(manifest, candidates)
+}
+
+func firstExistingArtifactCandidate(candidates []string) string {
 	for _, candidate := range candidates {
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
-			return syncBinaryArtifact(manifest, candidate)
+			return candidate
 		}
 	}
+	return ""
+}
+
+func missingBinaryFromCandidates(manifest *LoadedManifest, candidates []string) error {
 	trimmed := make([]string, 0, len(candidates))
 	for _, candidate := range candidates {
 		if candidate != "" {
@@ -184,6 +195,24 @@ func pythonInterpreter() (string, error) {
 		return "", fmt.Errorf("python runner requires python3 or python on PATH")
 	}
 	return interpreter, nil
+}
+
+func pythonInterpreterPath() (string, error) {
+	for _, candidate := range []string{"python3", "python"} {
+		resolved, err := exec.LookPath(candidate)
+		if err == nil {
+			cmd := exec.Command(resolved, "-c", "import sys; print(sys.executable)")
+			output, outputErr := cmd.Output()
+			if outputErr == nil {
+				actual := strings.TrimSpace(string(output))
+				if actual != "" {
+					return actual, nil
+				}
+			}
+			return resolved, nil
+		}
+	}
+	return "", fmt.Errorf("python runner requires python3 or python on PATH")
 }
 
 func pythonBuildArgs(manifest *LoadedManifest) ([]string, bool, error) {
@@ -396,7 +425,12 @@ func (pythonRunner) build(manifest *LoadedManifest, ctx BuildContext, report *Re
 	if err := os.MkdirAll(filepath.Dir(manifest.BinaryPath()), 0o755); err != nil {
 		return err
 	}
-	wrapper := fmt.Sprintf("#!/bin/sh\nset -eu\ncd %q\nexec %q %q \"$@\"\n", manifest.Dir, argsOrDefaultPython(), filepath.Join(manifest.Dir, filepath.FromSlash(entrypoint)))
+	wrapper := fmt.Sprintf(
+		"#!/bin/sh\nset -eu\ncd %q\nexec %q %q \"$@\"\n",
+		manifest.Dir,
+		argsOrDefaultPythonPath(),
+		filepath.Join(manifest.Dir, filepath.FromSlash(entrypoint)),
+	)
 	if err := os.WriteFile(manifest.BinaryPath(), []byte(wrapper), 0o755); err != nil {
 		return err
 	}
@@ -408,6 +442,39 @@ func argsOrDefaultPython() string {
 	interpreter, err := pythonInterpreter()
 	if err != nil {
 		return "python3"
+	}
+	return interpreter
+}
+
+func argsOrDefaultPythonPath() string {
+	interpreter, err := pythonInterpreterPath()
+	if err != nil {
+		return argsOrDefaultPython()
+	}
+	return interpreter
+}
+
+func nodeInterpreterPath() (string, error) {
+	resolved, err := exec.LookPath("node")
+	if err != nil {
+		return "", fmt.Errorf("npm runner requires node on PATH")
+	}
+
+	cmd := exec.Command(resolved, "-p", "process.execPath")
+	output, outputErr := cmd.Output()
+	if outputErr == nil {
+		actual := strings.TrimSpace(string(output))
+		if actual != "" {
+			return actual, nil
+		}
+	}
+	return resolved, nil
+}
+
+func argsOrDefaultNodePath() string {
+	interpreter, err := nodeInterpreterPath()
+	if err != nil {
+		return "node"
 	}
 	return interpreter
 }
@@ -814,10 +881,31 @@ func (npmRunner) build(manifest *LoadedManifest, ctx BuildContext, report *Repor
 			return fmt.Errorf("%s\n%s", err, output)
 		}
 	}
-	if err := syncBinaryFromCandidates(manifest, npmArtifactCandidates(manifest)); err != nil {
+	if manifestHasPrimaryArtifact(manifest) {
+		report.Notes = append(report.Notes, "npm build complete")
+		return nil
+	}
+
+	candidates := npmArtifactCandidates(manifest)
+	candidate := firstExistingArtifactCandidate(candidates)
+	if candidate == "" {
+		return missingBinaryFromCandidates(manifest, candidates)
+	}
+	if err := os.MkdirAll(filepath.Dir(manifest.BinaryPath()), 0o755); err != nil {
 		return err
 	}
+	wrapper := fmt.Sprintf(
+		"#!/bin/sh\nset -eu\ncd %q\nexec %q %q \"$@\"\n",
+		manifest.Dir,
+		argsOrDefaultNodePath(),
+		candidate,
+	)
+	if err := os.WriteFile(manifest.BinaryPath(), []byte(wrapper), 0o755); err != nil {
+		return err
+	}
+
 	report.Notes = append(report.Notes, "npm build complete")
+	report.Notes = append(report.Notes, fmt.Sprintf("npm launcher prepared for %s", workspaceRelativePath(candidate)))
 	return nil
 }
 

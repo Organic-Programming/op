@@ -30,6 +30,7 @@ type BuildOptions struct {
 	Target   string
 	Mode     string
 	DryRun   bool
+	NoSign   bool
 	Progress progress.Reporter
 }
 
@@ -38,6 +39,7 @@ type BuildContext struct {
 	Target   string
 	Mode     string
 	DryRun   bool
+	NoSign   bool
 	Progress progress.Reporter
 }
 
@@ -280,6 +282,7 @@ func resolveBuildContext(manifest *LoadedManifest, opts BuildOptions) (BuildCont
 		Target:   target,
 		Mode:     mode,
 		DryRun:   opts.DryRun,
+		NoSign:   opts.NoSign,
 		Progress: opts.Progress,
 	}, nil
 }
@@ -447,6 +450,19 @@ func (cmakeRunner) clean(manifest *LoadedManifest, report *Report) error {
 
 type recipeRunner struct{}
 
+type recipeBundleSigner struct {
+	artifactPath string
+	artifactRef  string
+	signable     bool
+	attempted    bool
+}
+
+var bundleSigningHostPlatform = runtimePlatform
+
+var runBundleCodesign = func(dir, artifactRef string) (string, error) {
+	return runCommand(dir, bundleCodesignArgs(artifactRef))
+}
+
 func (recipeRunner) check(manifest *LoadedManifest, ctx BuildContext) error {
 	if isAggregateBuildTarget(ctx.Target) {
 		if len(manifest.Manifest.Build.Targets) == 0 {
@@ -490,6 +506,7 @@ func (r recipeRunner) build(manifest *LoadedManifest, ctx BuildContext, report *
 				Target:   name,
 				Mode:     ctx.Mode,
 				DryRun:   ctx.DryRun,
+				NoSign:   ctx.NoSign,
 				Progress: ctx.Progress.Child(),
 			})
 			report.Children = append(report.Children, childReport)
@@ -516,11 +533,20 @@ func (r recipeRunner) build(manifest *LoadedManifest, ctx BuildContext, report *
 		memberMap[m.ID] = m
 	}
 
+	signer := newRecipeBundleSigner(manifest, ctx)
 	for i, step := range target.Steps {
+		if step.AssertFile != nil {
+			if err := r.signBundleArtifact(manifest, ctx, report, signer); err != nil {
+				return fmt.Errorf("target %q signing: %w", ctx.Target, err)
+			}
+		}
 		stepLabel := fmt.Sprintf("step %d", i+1)
 		if err := r.executeStep(manifest, ctx, step, memberMap, report, stepLabel); err != nil {
 			return fmt.Errorf("target %q %s: %w", ctx.Target, stepLabel, err)
 		}
+	}
+	if err := r.signBundleArtifact(manifest, ctx, report, signer); err != nil {
+		return fmt.Errorf("target %q signing: %w", ctx.Target, err)
 	}
 
 	if !ctx.DryRun {
@@ -567,6 +593,7 @@ func (recipeRunner) stepBuildMember(manifest *LoadedManifest, ctx BuildContext, 
 		Target:   ctx.Target,
 		Mode:     ctx.Mode,
 		DryRun:   ctx.DryRun,
+		NoSign:   ctx.NoSign,
 		Progress: ctx.Progress.Child(),
 	})
 	report.Children = append(report.Children, childReport)
@@ -708,6 +735,56 @@ func commandString(args []string) string {
 		quoted = append(quoted, arg)
 	}
 	return strings.Join(quoted, " ")
+}
+
+func newRecipeBundleSigner(manifest *LoadedManifest, ctx BuildContext) *recipeBundleSigner {
+	artifactPath := manifest.ArtifactPath(ctx)
+	if artifactPath == "" {
+		return &recipeBundleSigner{}
+	}
+	return &recipeBundleSigner{
+		artifactPath: artifactPath,
+		artifactRef:  manifestRelativePath(manifest, artifactPath),
+		signable:     isSignableBundleArtifact(artifactPath),
+	}
+}
+
+func (recipeRunner) signBundleArtifact(manifest *LoadedManifest, ctx BuildContext, report *Report, signer *recipeBundleSigner) error {
+	if signer == nil || signer.attempted || !signer.signable {
+		return nil
+	}
+	signer.attempted = true
+
+	if ctx.NoSign {
+		report.Notes = append(report.Notes, "skip signing (--no-sign): "+signer.artifactRef)
+		return nil
+	}
+	if bundleSigningHostPlatform() != "darwin" {
+		report.Notes = append(report.Notes, "skip signing: not on macOS: "+signer.artifactRef)
+		return nil
+	}
+
+	args := bundleCodesignArgs(signer.artifactRef)
+	report.Commands = append(report.Commands, commandString(args))
+	ctx.Progress.Step(commandString(args))
+	if ctx.DryRun {
+		return nil
+	}
+	if output, err := runBundleCodesign(manifest.Dir, signer.artifactRef); err != nil {
+		return fmt.Errorf("%s\n%s", err, output)
+	}
+
+	report.Notes = append(report.Notes, "signed (ad-hoc): "+signer.artifactRef)
+	return nil
+}
+
+func isSignableBundleArtifact(path string) bool {
+	lower := strings.ToLower(strings.TrimSpace(path))
+	return strings.HasSuffix(lower, ".app") || strings.HasSuffix(lower, ".framework")
+}
+
+func bundleCodesignArgs(artifactRef string) []string {
+	return []string{"codesign", "--force", "--deep", "--sign", "-", artifactRef}
 }
 
 func normalizedTarget(ref string) string {

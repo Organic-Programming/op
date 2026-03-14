@@ -2,6 +2,7 @@ package holons
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -174,6 +175,47 @@ func TestDartRunnerDryRunBuildUsesManagedBinaryOutput(t *testing.T) {
 	}
 }
 
+func TestPythonRunnerBuildEmbedsResolvedInterpreterPath(t *testing.T) {
+	root := t.TempDir()
+	toolDir := t.TempDir()
+	t.Setenv("PATH", toolDir)
+	writeFakeCommand(t, toolDir, "python3")
+	pythonPath := filepath.Join(toolDir, "python3")
+	if runtime.GOOS == "windows" {
+		pythonPath += ".bat"
+	}
+	if err := os.MkdirAll(filepath.Join(root, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "bin", "main.py"), []byte("print('ok')\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeRunnerManifest(t, root, "schema: holon/v0\nkind: native\nbuild:\n  runner: python\nartifacts:\n  binary: python-demo\n")
+
+	manifest, err := LoadManifest(root)
+	if err != nil {
+		t.Fatalf("LoadManifest failed: %v", err)
+	}
+
+	var report Report
+	err = (pythonRunner{}).build(manifest, BuildContext{
+		Target:   canonicalRuntimeTarget(),
+		Mode:     buildModeDebug,
+		Progress: progress.Silence(),
+	}, &report)
+	if err != nil {
+		t.Fatalf("python build failed: %v", err)
+	}
+
+	wrapper, err := os.ReadFile(manifest.BinaryPath())
+	if err != nil {
+		t.Fatalf("ReadFile(%q) failed: %v", manifest.BinaryPath(), err)
+	}
+	if !strings.Contains(string(wrapper), pythonPath) {
+		t.Fatalf("wrapper missing resolved interpreter path %q: %s", pythonPath, string(wrapper))
+	}
+}
+
 func TestRubyRunnerDryRunBuild(t *testing.T) {
 	root := t.TempDir()
 	toolDir := t.TempDir()
@@ -330,6 +372,90 @@ func TestNPMRunnerDryRunBuild(t *testing.T) {
 	}
 	if len(report.Commands) != 2 || !strings.Contains(report.Commands[0], "npm ci") || !strings.Contains(report.Commands[1], "npm run build") {
 		t.Fatalf("unexpected npm commands: %v", report.Commands)
+	}
+}
+
+func TestNPMRunnerBuildCreatesNativeLauncher(t *testing.T) {
+	root := t.TempDir()
+	toolDir := t.TempDir()
+	t.Setenv("PATH", toolDir)
+
+	logPath := filepath.Join(t.TempDir(), "node.log")
+	writeRecordingNodeCommand(t, toolDir, logPath)
+	writeFakeCommand(t, toolDir, "npm")
+
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte("{\"name\":\"demo\"}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "dist"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	entrypoint := filepath.Join(root, "dist", "npm-demo.js")
+	if err := os.WriteFile(entrypoint, []byte("console.log('ok')\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeRunnerManifest(t, root, "schema: holon/v0\nkind: native\nbuild:\n  runner: npm\nartifacts:\n  binary: npm-demo\n")
+
+	manifest, err := LoadManifest(root)
+	if err != nil {
+		t.Fatalf("LoadManifest failed: %v", err)
+	}
+
+	var report Report
+	err = (npmRunner{}).build(manifest, BuildContext{
+		Target:   canonicalRuntimeTarget(),
+		Mode:     buildModeDebug,
+		Progress: progress.Silence(),
+	}, &report)
+	if err != nil {
+		t.Fatalf("npm build failed: %v", err)
+	}
+
+	launcher, err := os.ReadFile(manifest.BinaryPath())
+	if err != nil {
+		t.Fatalf("ReadFile(%s) failed: %v", manifest.BinaryPath(), err)
+	}
+	launcherText := string(launcher)
+
+	nodePath := filepath.Join(toolDir, "node")
+	if runtime.GOOS == "windows" {
+		nodePath += ".bat"
+	}
+	if !strings.Contains(launcherText, nodePath) {
+		t.Fatalf("launcher missing resolved node path %q: %s", nodePath, launcherText)
+	}
+	if !strings.Contains(launcherText, entrypoint) {
+		t.Fatalf("launcher missing entrypoint path %q: %s", entrypoint, launcherText)
+	}
+
+	if runtime.GOOS == "windows" {
+		return
+	}
+
+	copiedLauncher := filepath.Join(t.TempDir(), "npm-demo")
+	if err := os.WriteFile(copiedLauncher, launcher, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := exec.Command(copiedLauncher, "version")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("copied launcher failed: %v\n%s", err, output)
+	}
+
+	logData, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("ReadFile(%s) failed: %v", logPath, err)
+	}
+	logText := string(logData)
+	if !strings.Contains(logText, root) {
+		t.Fatalf("node wrapper did not restore recipe cwd: %s", logText)
+	}
+	if !strings.Contains(logText, entrypoint) {
+		t.Fatalf("node wrapper missing entrypoint invocation: %s", logText)
+	}
+	if !strings.Contains(logText, "version") {
+		t.Fatalf("node wrapper missing forwarded args: %s", logText)
 	}
 }
 
@@ -831,4 +957,23 @@ func writeFakeCommand(t *testing.T, dir, name string) {
 	if err := os.WriteFile(path, data, mode); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func writeRecordingNodeCommand(t *testing.T, dir, logPath string) {
+	t.Helper()
+
+	if runtime.GOOS == "windows" {
+		writeFakeCommand(t, dir, "node")
+		return
+	}
+
+	path := filepath.Join(dir, "node")
+	data := []byte("#!/bin/sh\nset -eu\nprintf '%s\\n' \"$PWD\" > " + shellQuote(logPath) + "\nfor arg in \"$@\"; do\n  printf '%s\\n' \"$arg\" >> " + shellQuote(logPath) + "\ndone\n")
+	if err := os.WriteFile(path, data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func shellQuote(value string) string {
+	return "'" + strings.ReplaceAll(value, "'", "'\"'\"'") + "'"
 }

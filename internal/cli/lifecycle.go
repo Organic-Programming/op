@@ -27,6 +27,8 @@ func cmdLifecycle(format Format, globalQuiet bool, operation holons.Operation, a
 			i++
 		case args[i] == "--dry-run":
 			opts.DryRun = true
+		case args[i] == "--no-sign" && operation == holons.OperationBuild:
+			opts.NoSign = true
 		case strings.HasPrefix(args[i], "--"):
 			fmt.Fprintf(os.Stderr, "op %s: unknown flag %q\n", operation, args[i])
 			return 1

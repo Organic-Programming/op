@@ -435,10 +435,10 @@ func TestNormalizeMacOSAppBundleMetadataUsesCompositeIdentity(t *testing.T) {
 	}
 
 	normalizeMacOSAppBundleMetadata(bundle, &holons.LoadedManifest{
-		Name: "gudule-greeting-compose-csharp",
+		Name: "gudule-greeting-kotlinui-csharp",
 		Manifest: holons.Manifest{
 			Kind:       holons.KindComposite,
-			FamilyName: "Greeting-Compose-Csharp",
+			FamilyName: "Greeting-Kotlinui-Csharp",
 		},
 	})
 
@@ -447,10 +447,10 @@ func TestNormalizeMacOSAppBundleMetadataUsesCompositeIdentity(t *testing.T) {
 		t.Fatal(err)
 	}
 	content := string(data)
-	if !strings.Contains(content, "<string>Gudule Greeting-Compose-Csharp (Kotlin UI)</string>") {
+	if !strings.Contains(content, "<string>Gudule Greeting-Kotlinui-Csharp (Kotlin UI)</string>") {
 		t.Fatalf("normalized plist missing display name: %s", content)
 	}
-	if !strings.Contains(content, "<string>org.organicprogramming.gudule-greeting-compose-csharp</string>") {
+	if !strings.Contains(content, "<string>org.organicprogramming.gudule-greeting-kotlinui-csharp</string>") {
 		t.Fatalf("normalized plist missing bundle identifier: %s", content)
 	}
 
@@ -458,7 +458,7 @@ func TestNormalizeMacOSAppBundleMetadataUsesCompositeIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(cfgData), "java-options=-Xdock:name=Gudule Greeting-Compose-Csharp (Kotlin UI)") {
+	if !strings.Contains(string(cfgData), "java-options=-Xdock:name=Gudule Greeting-Kotlinui-Csharp (Kotlin UI)") {
 		t.Fatalf("normalized cfg missing dock name: %s", string(cfgData))
 	}
 }
@@ -1003,6 +1003,9 @@ func TestBuildCommandEmitsProgressAndSuggestions(t *testing.T) {
 			t.Fatalf("stderr missing %q: %q", expected, stderr)
 		}
 	}
+	if strings.Contains(stderr, "op test demo  run tests") {
+		t.Fatalf("stderr still renders command and description on one line: %q", stderr)
+	}
 }
 
 func TestBuildCommandJSONSuppressesProgressAndSuggestions(t *testing.T) {
@@ -1223,6 +1226,52 @@ func TestUninstallCommand(t *testing.T) {
 	}
 	if _, err := os.Stat(installed); !os.IsNotExist(err) {
 		t.Fatalf("installed binary still exists: %v", err)
+	}
+}
+
+func TestBuildCommandDryRunAcceptsNoSign(t *testing.T) {
+	root := t.TempDir()
+	chdirForTest(t, root)
+
+	dir := filepath.Join(root, "demo")
+	if err := os.MkdirAll(filepath.Join(dir, "app", "MyApp.app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := runtimeTargetForRunTest()
+	manifest := fmt.Sprintf("schema: holon/v0\nkind: composite\nbuild:\n  runner: recipe\n  members:\n    - id: app\n      path: app\n      type: component\n  targets:\n    %s:\n      steps:\n        - assert_file:\n            path: app/MyApp.app\nartifacts:\n  primary: app/MyApp.app\n", target)
+	if err := os.WriteFile(filepath.Join(dir, "holon.yaml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	stdout, stderr := captureOutput(t, func() {
+		code := Run([]string{"build", "--dry-run", "--no-sign", "--target", target, dir}, "0.1.0-test")
+		if code != 0 {
+			t.Fatalf("build --dry-run --no-sign returned %d, want 0", code)
+		}
+	})
+
+	if strings.Contains(stderr, "codesign --force --deep --sign -") {
+		t.Fatalf("dry-run stderr should omit codesign when --no-sign is set:\nstdout=%s\nstderr=%s", stdout, stderr)
+	}
+	if !strings.Contains(stdout, "skip signing (--no-sign): app/MyApp.app") {
+		t.Fatalf("stdout missing no-sign note:\nstdout=%s\nstderr=%s", stdout, stderr)
+	}
+}
+
+func TestLifecycleCommandsRejectNoSignOutsideBuild(t *testing.T) {
+	for _, operation := range []string{"check", "test", "clean"} {
+		t.Run(operation, func(t *testing.T) {
+			stderr := captureStderr(t, func() {
+				code := Run([]string{operation, "--no-sign"}, "0.1.0-test")
+				if code != 1 {
+					t.Fatalf("%s returned %d, want 1", operation, code)
+				}
+			})
+
+			if !strings.Contains(stderr, fmt.Sprintf("op %s: unknown flag %q", operation, "--no-sign")) {
+				t.Fatalf("stderr missing unknown-flag message: %q", stderr)
+			}
+		})
 	}
 }
 

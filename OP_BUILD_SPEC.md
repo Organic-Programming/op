@@ -49,14 +49,14 @@ Language tools and platform tools remain the actual builders.
 
 - Dependency solving across package managers
 - Replacing native toolchains
-- Deployment, installation, notarization, signing, or publishing
+- Deployment, installation, release signing, notarization, or publishing
 - Implicit graph discovery from directory layout alone
 - Hiding runner-specific reality from the user
 
 ## CLI Contract
 
 ```text
-op build [<holon-or-path>] [--target <target>] [--mode <mode>] [--config <config>] [--dry-run]
+op build [<holon-or-path>] [--target <target>] [--mode <mode>] [--config <config>] [--dry-run] [--no-sign]
 ```
 
 Rules:
@@ -66,6 +66,7 @@ Rules:
 - `--mode` defaults to `debug` (also: `release`, `profile`).
 - `--config` selects a named build configuration from `build.configs`. Defaults to `build.default_config`.
 - `--dry-run` prints the resolved build plan without executing it.
+- `--no-sign` skips automatic ad-hoc signing for `.app` and `.framework` bundle artifacts.
 - `op build` does not run tests
 - `op test` remains a separate command
 
