@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -161,6 +162,44 @@ func TestListIncludesLocalAndCachedIdentities(t *testing.T) {
 	}
 }
 
+func TestListAndShowSupportProtoBackedHolons(t *testing.T) {
+	exampleDir := filepath.Join(repoRoot(t), "examples", "hello-world", "gabriel-greeting-go")
+	runtimeHome := filepath.Join(t.TempDir(), ".runtime")
+	t.Setenv("OPPATH", runtimeHome)
+	t.Setenv("OPBIN", filepath.Join(runtimeHome, "bin"))
+
+	resp, err := List(exampleDir)
+	if err != nil {
+		t.Fatalf("List returned error: %v", err)
+	}
+	if len(resp.GetEntries()) != 1 {
+		t.Fatalf("entries = %d, want 1", len(resp.GetEntries()))
+	}
+
+	entry := resp.GetEntries()[0]
+	if got := entry.GetRelativePath(); got != "." {
+		t.Fatalf("relative path = %q, want %q", got, ".")
+	}
+	if got := entry.GetIdentity().GetGivenName(); got != "Gabriel" {
+		t.Fatalf("given_name = %q, want %q", got, "Gabriel")
+	}
+	if got := entry.GetIdentity().GetFamilyName(); got != "Greeting-Go" {
+		t.Fatalf("family_name = %q, want %q", got, "Greeting-Go")
+	}
+
+	chdirWhoTest(t, exampleDir)
+	shown, err := Show("3f08b5c3")
+	if err != nil {
+		t.Fatalf("Show returned error: %v", err)
+	}
+	if filepath.Base(shown.GetFilePath()) != "holon.proto" {
+		t.Fatalf("file_path = %q, want holon.proto", shown.GetFilePath())
+	}
+	if !strings.Contains(shown.GetRawContent(), "option (holons.v1.manifest)") {
+		t.Fatalf("raw content missing manifest option: %q", shown.GetRawContent())
+	}
+}
+
 func chdirWhoTest(t *testing.T, dir string) {
 	t.Helper()
 
@@ -173,4 +212,14 @@ func chdirWhoTest(t *testing.T, dir string) {
 	if err := os.Chdir(dir); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func repoRoot(t *testing.T) string {
+	t.Helper()
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "..", ".."))
 }

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/organic-programming/grace-op/internal/holons"
+	"github.com/organic-programming/grace-op/internal/identity"
 )
 
 // LocalCatalog is a parsed local holon ready for inspect/tools/mcp reuse.
@@ -22,7 +23,12 @@ func LoadLocal(ref string) (*LocalCatalog, error) {
 		return nil, err
 	}
 
-	catalog, err := ParseCatalog(filepath.Join(target.Dir, "protos"))
+	protoDir := filepath.Join(target.Dir, "protos")
+	if filepath.Base(target.IdentityPath) == identity.ProtoManifestFileName {
+		protoDir = target.Dir
+	}
+
+	catalog, err := ParseCatalog(protoDir)
 	if err != nil {
 		return nil, err
 	}

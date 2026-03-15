@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -86,6 +87,7 @@ func discoverHolonsInRoot(root, origin string, relPath func(string, string) stri
 
 	candidates := make(map[string]LocalHolon)
 	orderedKeys := make([]string, 0)
+	protoFiles := make([]string, 0)
 
 	err = filepath.WalkDir(absRoot, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
@@ -99,6 +101,9 @@ func discoverHolonsInRoot(root, origin string, relPath func(string, string) stri
 			return nil
 		}
 		if d.Name() != ManifestFileName {
+			if d.Name() == identity.ProtoManifestFileName {
+				protoFiles = append(protoFiles, path)
+			}
 			return nil
 		}
 
@@ -146,6 +151,48 @@ func discoverHolonsInRoot(root, origin string, relPath func(string, string) stri
 		return nil, err
 	}
 
+	sort.Strings(protoFiles)
+	for _, protoPath := range protoFiles {
+		resolved, err := identity.ResolveFromProtoFile(protoPath)
+		if err != nil {
+			continue
+		}
+		if resolved.Identity.GivenName == "" && resolved.Identity.FamilyName == "" {
+			continue
+		}
+
+		dir := protoHolonDir(absRoot, protoPath, resolved)
+		absDir, err := filepath.Abs(dir)
+		if err != nil {
+			continue
+		}
+
+		entry := LocalHolon{
+			Dir:          absDir,
+			RelativePath: relPath(absRoot, absDir),
+			Origin:       origin,
+			Identity:     resolved.Identity,
+			IdentityPath: resolved.SourcePath,
+		}
+		if manifest, loadErr := LoadManifest(absDir); loadErr == nil {
+			entry.Manifest = manifest
+		}
+
+		key := strings.TrimSpace(entry.Identity.UUID)
+		if key == "" {
+			key = absDir
+		}
+		if existing, ok := candidates[key]; ok {
+			if shouldReplaceDiscoveredHolon(existing, entry) {
+				candidates[key] = entry
+			}
+			continue
+		}
+
+		candidates[key] = entry
+		orderedKeys = append(orderedKeys, key)
+	}
+
 	entries := make([]LocalHolon, 0, len(candidates))
 	for _, key := range orderedKeys {
 		entry, ok := candidates[key]
@@ -166,10 +213,125 @@ func shouldSkipDiscoveryDir(root, path, name string) bool {
 	if path == root {
 		return false
 	}
-	if name == ".git" || name == ".op" || name == "node_modules" || name == "vendor" || name == "build" {
+	if name == ".git" || name == ".op" || name == "node_modules" || name == "vendor" || name == "build" || name == "testdata" {
 		return true
 	}
 	return strings.HasPrefix(name, ".")
+}
+
+var protoVersionDirPattern = regexp.MustCompile(`^v[0-9]+(?:[A-Za-z0-9._-]*)?$`)
+
+func shouldReplaceDiscoveredHolon(current, next LocalHolon) bool {
+	currentDepth := discoveryPathDepth(current.RelativePath)
+	nextDepth := discoveryPathDepth(next.RelativePath)
+	if nextDepth < currentDepth {
+		return true
+	}
+	if nextDepth > currentDepth {
+		return false
+	}
+	return isProtoIdentityPath(next.IdentityPath) && !isProtoIdentityPath(current.IdentityPath)
+}
+
+func isProtoIdentityPath(path string) bool {
+	return filepath.Base(path) == identity.ProtoManifestFileName
+}
+
+func protoHolonDir(root, protoPath string, resolved *identity.Resolved) string {
+	protoDir := filepath.Dir(protoPath)
+	bestDir := protoDir
+	bestScore := 0
+	bestDepth := discoveryPathDepth(holonRelativePath(root, protoDir))
+
+	for candidate := protoDir; candidate != ""; candidate = filepath.Dir(candidate) {
+		if !isWithinDiscoveryRoot(root, candidate) {
+			break
+		}
+
+		score := protoCandidateScore(candidate, resolved)
+		depth := discoveryPathDepth(holonRelativePath(root, candidate))
+		if score > bestScore || (score == bestScore && score > 0 && depth > bestDepth) {
+			bestDir = candidate
+			bestScore = score
+			bestDepth = depth
+		}
+
+		if filepath.Clean(candidate) == filepath.Clean(root) {
+			break
+		}
+		parent := filepath.Dir(candidate)
+		if parent == candidate {
+			break
+		}
+	}
+
+	if bestScore > 0 {
+		return bestDir
+	}
+
+	if protoVersionDirPattern.MatchString(filepath.Base(protoDir)) {
+		parent := filepath.Dir(protoDir)
+		if parent != protoDir && isWithinDiscoveryRoot(root, parent) {
+			return parent
+		}
+	}
+
+	return protoDir
+}
+
+func protoCandidateScore(dir string, resolved *identity.Resolved) int {
+	score := 0
+	for _, requiredFile := range resolved.RequiredFiles {
+		if protoCandidatePathExists(dir, requiredFile) {
+			score++
+		}
+	}
+	if protoCandidatePathExists(dir, resolved.BuildMain) {
+		score++
+	}
+	for _, memberPath := range resolved.MemberPaths {
+		if protoCandidatePathExists(dir, memberPath) {
+			score++
+		}
+	}
+	if protoCandidatePathExists(dir, resolved.PrimaryArtifact) {
+		score++
+	}
+	return score
+}
+
+func protoCandidatePathExists(base, rel string) bool {
+	path, ok := resolveProtoCandidatePath(base, rel)
+	if !ok {
+		return false
+	}
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+func resolveProtoCandidatePath(base, rel string) (string, bool) {
+	trimmed := strings.TrimSpace(rel)
+	if trimmed == "" {
+		return "", false
+	}
+
+	candidate := filepath.Clean(filepath.Join(base, filepath.FromSlash(trimmed)))
+	withinBase, err := filepath.Rel(base, candidate)
+	if err != nil {
+		return "", false
+	}
+	if withinBase == ".." || strings.HasPrefix(withinBase, ".."+string(os.PathSeparator)) {
+		return "", false
+	}
+	return candidate, true
+}
+
+func isWithinDiscoveryRoot(root, candidate string) bool {
+	rel, err := filepath.Rel(root, candidate)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(os.PathSeparator)))
 }
 
 func discoveryPathDepth(rel string) int {
@@ -561,10 +723,12 @@ func resolveDir(ref, dir string) (*Target, error) {
 	if id, _, err := identity.ReadHolonYAML(identityPath); err == nil {
 		target.Identity = &id
 		target.IdentityPath = identityPath
+	} else if resolved, resolveErr := identity.Resolve(absDir); resolveErr == nil {
+		target.Identity = &resolved.Identity
+		target.IdentityPath = resolved.SourcePath
 	}
 
-	manifestPath := filepath.Join(absDir, ManifestFileName)
-	if _, err := os.Stat(manifestPath); err == nil {
+	if target.IdentityPath != "" {
 		manifest, loadErr := LoadManifest(absDir)
 		if loadErr != nil {
 			target.ManifestErr = loadErr

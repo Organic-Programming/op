@@ -30,6 +30,7 @@ func TestDiscoverHolonsRecursesAndSkipsExcludedDirs(t *testing.T) {
 		filepath.Join(root, "node_modules", "ignored"),
 		filepath.Join(root, "vendor", "ignored"),
 		filepath.Join(root, "build", "ignored"),
+		filepath.Join(root, "testdata", "ignored"),
 		filepath.Join(root, ".hidden", "ignored"),
 	} {
 		writeDiscoveryHolon(t, skipped, discoveryHolonSeed{

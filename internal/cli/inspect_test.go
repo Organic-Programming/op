@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -93,6 +94,44 @@ func TestInspectCommandJSON(t *testing.T) {
 	}
 	if len(payload.Skills) != 1 || payload.Skills[0].Name != "prepare-release" {
 		t.Fatalf("unexpected skills payload: %+v", payload.Skills)
+	}
+}
+
+func TestInspectCommandProtoBackedHolonJSON(t *testing.T) {
+	repoRoot := inspectRepoRoot(t)
+	chdirForTest(t, repoRoot)
+
+	output := captureStdout(t, func() {
+		code := Run([]string{"inspect", "gabriel-greeting-go", "--json"}, "0.1.0-test")
+		if code != 0 {
+			t.Fatalf("inspect proto holon returned %d, want 0", code)
+		}
+	})
+
+	var payload struct {
+		Slug     string `json:"slug"`
+		Motto    string `json:"motto"`
+		Services []struct {
+			Name    string `json:"name"`
+			Methods []struct {
+				Name string `json:"name"`
+			} `json:"methods"`
+		} `json:"services"`
+	}
+	if err := json.Unmarshal([]byte(output), &payload); err != nil {
+		t.Fatalf("inspect proto holon json output is invalid: %v\noutput=%s", err, output)
+	}
+	if payload.Slug != "gabriel-greeting-go" {
+		t.Fatalf("slug = %q, want %q", payload.Slug, "gabriel-greeting-go")
+	}
+	if payload.Motto == "" {
+		t.Fatal("motto should not be empty")
+	}
+	if len(payload.Services) != 1 || payload.Services[0].Name != "greeting.v1.GreetingService" {
+		t.Fatalf("unexpected services payload: %+v", payload.Services)
+	}
+	if got := len(payload.Services[0].Methods); got != 2 {
+		t.Fatalf("methods = %d, want 2", got)
 	}
 }
 
@@ -271,4 +310,14 @@ func startDescribeServer(t *testing.T, response *holonmetav1.DescribeResponse) s
 	})
 
 	return lis.Addr().String()
+}
+
+func inspectRepoRoot(t *testing.T) string {
+	t.Helper()
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	return filepath.Join(filepath.Dir(file), "..", "..", "..", "..")
 }

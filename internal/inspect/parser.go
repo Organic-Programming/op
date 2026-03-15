@@ -3,6 +3,7 @@ package inspect
 import (
 	"fmt"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -63,7 +64,7 @@ func ParseCatalog(protoDir string) (*Catalog, error) {
 	}
 
 	parser := protoparse.Parser{
-		ImportPaths:               []string{absDir},
+		ImportPaths:               discoverProtoImportPaths(absDir),
 		InferImportPaths:          true,
 		IncludeSourceCodeInfo:     true,
 		LookupImport:              desc.LoadFileDescriptor,
@@ -97,14 +98,48 @@ func (b parserBuilder) buildCatalog(files []*desc.FileDescriptor) (*Document, []
 		Services: make([]Service, 0),
 	}
 	methods := make([]MethodBinding, 0)
+	fileSeen := make(map[string]bool)
+	serviceSeen := make(map[string]bool)
 	for _, file := range files {
-		for _, service := range file.GetServices() {
-			serviceDoc, serviceMethods := b.buildService(service)
-			document.Services = append(document.Services, serviceDoc)
-			methods = append(methods, serviceMethods...)
-		}
+		fileServices, fileMethods := b.buildCatalogFromFile(file, fileSeen, serviceSeen)
+		document.Services = append(document.Services, fileServices...)
+		methods = append(methods, fileMethods...)
 	}
 	return document, methods
+}
+
+func (b parserBuilder) buildCatalogFromFile(
+	file *desc.FileDescriptor,
+	fileSeen map[string]bool,
+	serviceSeen map[string]bool,
+) ([]Service, []MethodBinding) {
+	if file == nil {
+		return nil, nil
+	}
+
+	name := filepath.ToSlash(file.GetName())
+	if fileSeen[name] {
+		return nil, nil
+	}
+	fileSeen[name] = true
+
+	services := make([]Service, 0, len(file.GetServices()))
+	methods := make([]MethodBinding, 0)
+	for _, dep := range file.GetDependencies() {
+		depServices, depMethods := b.buildCatalogFromFile(dep, fileSeen, serviceSeen)
+		services = append(services, depServices...)
+		methods = append(methods, depMethods...)
+	}
+	for _, service := range file.GetServices() {
+		if serviceSeen[service.GetFullyQualifiedName()] {
+			continue
+		}
+		serviceSeen[service.GetFullyQualifiedName()] = true
+		serviceDoc, serviceMethods := b.buildService(service)
+		services = append(services, serviceDoc)
+		methods = append(methods, serviceMethods...)
+	}
+	return services, methods
 }
 
 func (b parserBuilder) buildService(service *desc.ServiceDescriptor) (Service, []MethodBinding) {
@@ -241,6 +276,34 @@ func collectProtoFiles(dir string) ([]string, error) {
 	}
 	sort.Strings(files)
 	return files, nil
+}
+
+func discoverProtoImportPaths(protoDir string) []string {
+	cleanProtoDir := filepath.Clean(protoDir)
+	paths := []string{cleanProtoDir}
+	seen := map[string]struct{}{cleanProtoDir: {}}
+
+	for current := filepath.Dir(protoDir); current != "" && current != filepath.Dir(current); current = filepath.Dir(current) {
+		appendImportDir(&paths, seen, filepath.Join(current, "_protos"))
+		appendImportDir(&paths, seen, filepath.Join(current, "recipes", "protos"))
+	}
+
+	return paths
+}
+
+func appendImportDir(paths *[]string, seen map[string]struct{}, candidate string) {
+	info, err := os.Stat(candidate)
+	if err != nil || !info.IsDir() {
+		return
+	}
+
+	cleaned := filepath.Clean(candidate)
+	if _, ok := seen[cleaned]; ok {
+		return
+	}
+
+	seen[cleaned] = struct{}{}
+	*paths = append(*paths, cleaned)
 }
 
 type commentMeta struct {

@@ -97,13 +97,13 @@ func Show(target string) (*opv1.ShowIdentityResponse, error) {
 	}
 
 	path := matches[0].IdentityPath
-	id, raw, err := identity.ReadHolonYAML(path)
+	raw, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
 	return &opv1.ShowIdentityResponse{
-		Identity:   toProto(id),
+		Identity:   toProto(matches[0].Identity),
 		FilePath:   path,
 		RawContent: string(raw),
 	}, nil

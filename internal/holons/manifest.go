@@ -2,12 +2,14 @@ package holons
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
+	"github.com/organic-programming/grace-op/internal/identity"
 	"gopkg.in/yaml.v3"
 )
 
@@ -149,6 +151,8 @@ type LoadedManifest struct {
 	Name     string
 }
 
+var errProtoManifestNotFound = errors.New("no holon.proto found")
+
 func (m *Manifest) ArtifactPath() string {
 	if m == nil {
 		return ""
@@ -165,12 +169,22 @@ func LoadManifest(dir string) (*LoadedManifest, error) {
 		return nil, fmt.Errorf("resolve %s: %w", dir, err)
 	}
 
+	if loaded, err := loadProtoManifest(absDir); err == nil {
+		return loaded, nil
+	} else if !errors.Is(err, errProtoManifestNotFound) {
+		return nil, err
+	}
+
 	manifestPath := filepath.Join(absDir, ManifestFileName)
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", manifestPath, err)
 	}
 
+	return loadYAMLManifest(absDir, manifestPath, data)
+}
+
+func loadYAMLManifest(absDir, manifestPath string, data []byte) (*LoadedManifest, error) {
 	var manifest Manifest
 	decoder := yaml.NewDecoder(bytes.NewReader(data))
 	decoder.KnownFields(true)
@@ -193,6 +207,124 @@ func LoadManifest(dir string) (*LoadedManifest, error) {
 	}
 
 	return loaded, nil
+}
+
+func loadProtoManifest(absDir string) (*LoadedManifest, error) {
+	protoFiles, err := findProtoManifestFiles(absDir)
+	if err != nil {
+		return nil, err
+	}
+	if len(protoFiles) == 0 {
+		return nil, errProtoManifestNotFound
+	}
+
+	var firstErr error
+	for _, protoPath := range protoFiles {
+		resolved, err := identity.ResolveFromProtoFile(protoPath)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+
+		root := protoHolonDir(absDir, protoPath, resolved)
+		rootAbs, err := filepath.Abs(root)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if filepath.Clean(rootAbs) != filepath.Clean(absDir) {
+			continue
+		}
+
+		loaded := &LoadedManifest{
+			Manifest: manifestFromResolved(resolved),
+			Dir:      absDir,
+			Path:     resolved.SourcePath,
+			Name:     filepath.Base(absDir),
+		}
+
+		if err := normalizeManifest(loaded); err != nil {
+			return nil, err
+		}
+		if err := validateManifest(loaded); err != nil {
+			return nil, err
+		}
+		return loaded, nil
+	}
+
+	if firstErr != nil {
+		return nil, firstErr
+	}
+	return nil, errProtoManifestNotFound
+}
+
+func findProtoManifestFiles(root string) ([]string, error) {
+	files := make([]string, 0)
+	err := filepath.WalkDir(root, func(path string, d os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			if shouldSkipDiscoveryDir(root, path, d.Name()) {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if d.Name() == identity.ProtoManifestFileName {
+			files = append(files, path)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("scan %s for %s: %w", root, identity.ProtoManifestFileName, err)
+	}
+	slices.Sort(files)
+	return files, nil
+}
+
+func manifestFromResolved(resolved *identity.Resolved) Manifest {
+	if resolved == nil {
+		return Manifest{}
+	}
+
+	return Manifest{
+		Schema:       SchemaV0,
+		UUID:         resolved.Identity.UUID,
+		GivenName:    resolved.Identity.GivenName,
+		FamilyName:   resolved.Identity.FamilyName,
+		Motto:        resolved.Identity.Motto,
+		Composer:     resolved.Identity.Composer,
+		Clade:        resolved.Identity.Clade,
+		Status:       resolved.Identity.Status,
+		Born:         resolved.Identity.Born,
+		Lang:         resolved.Identity.Lang,
+		ProtoStatus:  resolved.Identity.ProtoStatus,
+		Parents:      slices.Clone(resolved.Identity.Parents),
+		Reproduction: resolved.Identity.Reproduction,
+		GeneratedBy:  resolved.Identity.GeneratedBy,
+		Kind:         resolved.Kind,
+		Transport:    resolved.Transport,
+		Platforms:    slices.Clone(resolved.Platforms),
+		Build: BuildConfig{
+			Runner: resolved.BuildRunner,
+			Main:   resolved.BuildMain,
+		},
+		Requires: Requires{
+			Commands: slices.Clone(resolved.RequiredCommands),
+			Files:    slices.Clone(resolved.RequiredFiles),
+		},
+		Delegates: Delegates{
+			Commands: slices.Clone(resolved.DelegateCommands),
+		},
+		Artifacts: ArtifactPaths{
+			Binary:  resolved.ArtifactBinary,
+			Primary: resolved.PrimaryArtifact,
+		},
+	}
 }
 
 func (m *LoadedManifest) SupportsCurrentPlatform() bool {

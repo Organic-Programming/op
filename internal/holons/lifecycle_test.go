@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -62,6 +63,55 @@ func TestLoadManifestRejectsBinaryAndPrimaryTogether(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "artifacts.binary and artifacts.primary are mutually exclusive") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadManifestFromProtoForGoModule(t *testing.T) {
+	root := t.TempDir()
+	dir := writeProtoGoHolonFixture(t, root, "demo-proto")
+
+	manifest, err := LoadManifest(dir)
+	if err != nil {
+		t.Fatalf("LoadManifest returned error: %v", err)
+	}
+	if got := filepath.Base(manifest.Path); got != identity.ProtoManifestFileName {
+		t.Fatalf("manifest path basename = %q, want %q", got, identity.ProtoManifestFileName)
+	}
+	if got := manifest.Manifest.Build.Runner; got != RunnerGoModule {
+		t.Fatalf("build runner = %q, want %q", got, RunnerGoModule)
+	}
+	if got := manifest.Manifest.Build.Main; got != "./cmd/demo-proto" {
+		t.Fatalf("build main = %q, want %q", got, "./cmd/demo-proto")
+	}
+	if got := manifest.Manifest.Artifacts.Binary; got != "demo-proto" {
+		t.Fatalf("binary = %q, want %q", got, "demo-proto")
+	}
+	if got := manifest.Manifest.Kind; got != KindNative {
+		t.Fatalf("kind = %q, want %q", got, KindNative)
+	}
+}
+
+func TestExecuteLifecycleBuildGoModuleFromProtoManifest(t *testing.T) {
+	if _, err := execLookPath("go"); err != nil {
+		t.Skip("go command not available")
+	}
+
+	root := t.TempDir()
+	chdirForHolonTest(t, root)
+	dir := writeProtoGoHolonFixture(t, root, "demo-proto")
+
+	buildReport, err := ExecuteLifecycle(OperationBuild, dir)
+	if err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".op", "build", "bin", "demo-proto")); err != nil {
+		t.Fatalf("binary missing after build: %v", err)
+	}
+	if buildReport.Runner != RunnerGoModule {
+		t.Fatalf("runner = %q, want %q", buildReport.Runner, RunnerGoModule)
+	}
+	if !strings.HasSuffix(buildReport.Manifest, filepath.ToSlash(filepath.Join("demo-proto", "v1", "holon.proto"))) {
+		t.Fatalf("manifest report = %q", buildReport.Manifest)
 	}
 }
 
@@ -218,6 +268,96 @@ func TestExecuteLifecycleBuildRejectsCrossTargetGoModule(t *testing.T) {
 	if !strings.Contains(err.Error(), "cross-target build not implemented") {
 		t.Fatalf("unexpected error: %v", err)
 	}
+}
+
+func writeProtoGoHolonFixture(t *testing.T, root, name string) string {
+	t.Helper()
+
+	dir := filepath.Join(root, name)
+	if err := os.MkdirAll(filepath.Join(dir, "cmd", name), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "v1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/"+name+"\n\ngo 1.24.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "cmd", name, "main.go"), []byte("package main\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeSharedHolonManifestProto(t, root)
+
+	proto := fmt.Sprintf(`syntax = "proto3";
+
+package test.v1;
+
+import "holons/v1/manifest.proto";
+
+option (holons.v1.manifest) = {
+  identity: {
+    schema: "holon/v1"
+    uuid: "%s-uuid"
+    given_name: "Demo"
+    family_name: "Proto"
+    motto: "Proto-backed test holon."
+    composer: "test"
+    clade: "deterministic/pure"
+    status: "draft"
+    born: "2026-03-15"
+  }
+  lineage: {
+    reproduction: "manual"
+    generated_by: "test"
+  }
+  kind: "native"
+  lang: "go"
+  build: {
+    runner: "go-module"
+    main: "./cmd/%s"
+  }
+  requires: {
+    commands: ["go"]
+    files: ["go.mod"]
+  }
+  artifacts: {
+    binary: "%s"
+  }
+};
+`, name, name, name)
+	if err := os.WriteFile(filepath.Join(dir, "v1", "holon.proto"), []byte(proto), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	return dir
+}
+
+func writeSharedHolonManifestProto(t *testing.T, root string) {
+	t.Helper()
+
+	source := filepath.Join(holonsRepoRoot(t), "_protos", "holons", "v1", "manifest.proto")
+	data, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatalf("read %s: %v", source, err)
+	}
+
+	targetDir := filepath.Join(root, "_protos", "holons", "v1")
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", targetDir, err)
+	}
+	if err := os.WriteFile(filepath.Join(targetDir, "manifest.proto"), data, 0o644); err != nil {
+		t.Fatalf("write manifest.proto: %v", err)
+	}
+}
+
+func holonsRepoRoot(t *testing.T) string {
+	t.Helper()
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	return filepath.Join(filepath.Dir(file), "..", "..", "..", "..")
 }
 
 func TestCMakeRunnerDryRunUsesModeSpecificConfig(t *testing.T) {

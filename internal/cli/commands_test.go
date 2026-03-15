@@ -893,6 +893,37 @@ func TestInstallCommandJSONFormat(t *testing.T) {
 	}
 }
 
+func TestInstallCommandProtoManifest(t *testing.T) {
+	if _, err := exec.LookPath("go"); err != nil {
+		t.Skip("go command not available")
+	}
+
+	root := t.TempDir()
+	chdirForTest(t, root)
+	t.Setenv("OPPATH", filepath.Join(root, ".runtime"))
+	t.Setenv("OPBIN", filepath.Join(root, ".runtime", "bin"))
+
+	writeProtoInstallFixture(t, root, "demo-proto")
+
+	output := captureStdout(t, func() {
+		code := Run([]string{"install", "demo-proto"}, "0.1.0-test")
+		if code != 0 {
+			t.Fatalf("install returned %d, want 0", code)
+		}
+	})
+
+	installed := filepath.Join(root, ".runtime", "bin", "demo-proto")
+	if _, err := os.Stat(installed); err != nil {
+		t.Fatalf("installed binary missing: %v", err)
+	}
+	if !strings.Contains(output, "Installed: "+installed) {
+		t.Fatalf("install output missing installed path: %q", output)
+	}
+	if !strings.Contains(output, "Binary: demo-proto") {
+		t.Fatalf("install output missing binary name: %q", output)
+	}
+}
+
 func TestInstallCommandNoBuildFailsWhenArtifactMissing(t *testing.T) {
 	root := t.TempDir()
 	chdirForTest(t, root)
@@ -2229,4 +2260,94 @@ func executableSuffixForRunTest() string {
 		return ".exe"
 	}
 	return ""
+}
+
+func writeProtoInstallFixture(t *testing.T, root, name string) string {
+	t.Helper()
+
+	dir := filepath.Join(root, name)
+	if err := os.MkdirAll(filepath.Join(dir, "cmd", name), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "v1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/"+name+"\n\ngo 1.24.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "cmd", name, "main.go"), []byte("package main\nfunc main() {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeCLISharedManifestProto(t, root)
+
+	proto := fmt.Sprintf(`syntax = "proto3";
+
+package test.v1;
+
+import "holons/v1/manifest.proto";
+
+option (holons.v1.manifest) = {
+  identity: {
+    schema: "holon/v1"
+    uuid: "%s-uuid"
+    given_name: "Demo"
+    family_name: "Proto"
+    motto: "Proto-backed install fixture."
+    composer: "test"
+    clade: "deterministic/pure"
+    status: "draft"
+    born: "2026-03-15"
+  }
+  lineage: {
+    reproduction: "manual"
+    generated_by: "test"
+  }
+  kind: "native"
+  lang: "go"
+  build: {
+    runner: "go-module"
+    main: "./cmd/%s"
+  }
+  requires: {
+    commands: ["go"]
+    files: ["go.mod"]
+  }
+  artifacts: {
+    binary: "%s"
+  }
+};
+`, name, name, name)
+	if err := os.WriteFile(filepath.Join(dir, "v1", "holon.proto"), []byte(proto), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	return dir
+}
+
+func writeCLISharedManifestProto(t *testing.T, root string) {
+	t.Helper()
+
+	source := filepath.Join(cliRepoRoot(t), "_protos", "holons", "v1", "manifest.proto")
+	data, err := os.ReadFile(source)
+	if err != nil {
+		t.Fatalf("read %s: %v", source, err)
+	}
+
+	targetDir := filepath.Join(root, "_protos", "holons", "v1")
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", targetDir, err)
+	}
+	if err := os.WriteFile(filepath.Join(targetDir, "manifest.proto"), data, 0o644); err != nil {
+		t.Fatalf("write manifest.proto: %v", err)
+	}
+}
+
+func cliRepoRoot(t *testing.T) string {
+	t.Helper()
+
+	_, file, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller failed")
+	}
+	return filepath.Join(filepath.Dir(file), "..", "..", "..", "..")
 }
