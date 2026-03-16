@@ -154,7 +154,7 @@ op uninstall <TAB>        →  only installed holons from $OPBIN
 
 ## Status
 
-v0.3.1 — composite artifacts, expanded runners, template scaffolds, and release packaging.
+v0.5.0 — proto-first manifest, public `api/` CLI and code facets, thin gRPC server delegation, and Gabriel-style facet boundaries.
 
 ## Design Drafts
 

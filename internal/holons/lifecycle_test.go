@@ -110,7 +110,7 @@ func TestExecuteLifecycleBuildGoModuleFromProtoManifest(t *testing.T) {
 	if buildReport.Runner != RunnerGoModule {
 		t.Fatalf("runner = %q, want %q", buildReport.Runner, RunnerGoModule)
 	}
-	if !strings.HasSuffix(buildReport.Manifest, filepath.ToSlash(filepath.Join("demo-proto", "v1", "holon.proto"))) {
+	if !strings.HasSuffix(buildReport.Manifest, filepath.ToSlash(filepath.Join("demo-proto", "api", "v1", "holon.proto"))) {
 		t.Fatalf("manifest report = %q", buildReport.Manifest)
 	}
 }
@@ -277,7 +277,7 @@ func writeProtoGoHolonFixture(t *testing.T, root, name string) string {
 	if err := os.MkdirAll(filepath.Join(dir, "cmd", name), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(dir, "v1"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "api", "v1"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/"+name+"\n\ngo 1.24.0\n"), 0o644); err != nil {
@@ -302,13 +302,8 @@ option (holons.v1.manifest) = {
     family_name: "Proto"
     motto: "Proto-backed test holon."
     composer: "test"
-    clade: "deterministic/pure"
     status: "draft"
     born: "2026-03-15"
-  }
-  lineage: {
-    reproduction: "manual"
-    generated_by: "test"
   }
   kind: "native"
   lang: "go"
@@ -325,7 +320,7 @@ option (holons.v1.manifest) = {
   }
 };
 `, name, name, name)
-	if err := os.WriteFile(filepath.Join(dir, "v1", "holon.proto"), []byte(proto), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "api", "v1", "holon.proto"), []byte(proto), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

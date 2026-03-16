@@ -564,20 +564,28 @@ func collectProtoFiles(dir string) ([]string, error) {
 }
 
 func buildImportPaths(dir string) []string {
-	paths := []string{dir}
-	seen := map[string]struct{}{dir: {}}
+	cleanDir := filepath.Clean(dir)
+	paths := []string{cleanDir}
+	seen := map[string]struct{}{cleanDir: {}}
 
 	for current := filepath.Dir(dir); current != "" && current != filepath.Dir(current); current = filepath.Dir(current) {
+		cleanCurrent := filepath.Clean(current)
+		if _, ok := seen[cleanCurrent]; !ok {
+			paths = append(paths, cleanCurrent)
+			seen[cleanCurrent] = struct{}{}
+		}
+
 		candidate := filepath.Join(current, "_protos")
 		info, err := os.Stat(candidate)
 		if err != nil || !info.IsDir() {
 			continue
 		}
-		if _, ok := seen[candidate]; ok {
+		cleanCandidate := filepath.Clean(candidate)
+		if _, ok := seen[cleanCandidate]; ok {
 			continue
 		}
-		paths = append(paths, candidate)
-		seen[candidate] = struct{}{}
+		paths = append(paths, cleanCandidate)
+		seen[cleanCandidate] = struct{}{}
 	}
 
 	return paths

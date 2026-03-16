@@ -21,7 +21,7 @@ func writeProtoRecipeManifest(t *testing.T, root, dir, body string) {
 	t.Helper()
 
 	writeSharedHolonManifestProto(t, root)
-	if err := os.MkdirAll(filepath.Join(dir, "v1"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "api", "v1"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -39,19 +39,14 @@ option (holons.v1.manifest) = {
     family_name: "Recipe"
     motto: "Proto-backed recipe test holon."
     composer: "test"
-    clade: "deterministic/pure"
     status: "draft"
     born: "2026-03-15"
-  }
-  lineage: {
-    reproduction: "manual"
-    generated_by: "test"
   }
 %s
 };
 `, filepath.Base(dir), strings.TrimSpace(body))
 
-	if err := os.WriteFile(filepath.Join(dir, "v1", "holon.proto"), []byte(proto), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "api", "v1", "holon.proto"), []byte(proto), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -471,7 +466,7 @@ func TestExecuteLifecycleBuildProtoBackedRecipe(t *testing.T) {
 	if report.Runner != RunnerRecipe {
 		t.Fatalf("runner = %q, want %q", report.Runner, RunnerRecipe)
 	}
-	if !strings.HasSuffix(report.Manifest, filepath.ToSlash(filepath.Join("proto-build-recipe", "v1", "holon.proto"))) {
+	if !strings.HasSuffix(report.Manifest, filepath.ToSlash(filepath.Join("proto-build-recipe", "api", "v1", "holon.proto"))) {
 		t.Fatalf("manifest report = %q", report.Manifest)
 	}
 	if !hasEntryContaining(report.Commands, "go version") {

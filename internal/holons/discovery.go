@@ -271,6 +271,12 @@ func protoHolonDir(root, protoPath string, resolved *identity.Resolved) string {
 
 	if protoVersionDirPattern.MatchString(filepath.Base(protoDir)) {
 		parent := filepath.Dir(protoDir)
+		if layoutDir := filepath.Base(parent); layoutDir == "api" || layoutDir == "protos" {
+			grandparent := filepath.Dir(parent)
+			if grandparent != parent && isWithinDiscoveryRoot(root, grandparent) {
+				return grandparent
+			}
+		}
 		if parent != protoDir && isWithinDiscoveryRoot(root, parent) {
 			return parent
 		}

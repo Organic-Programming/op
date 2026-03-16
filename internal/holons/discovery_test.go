@@ -92,6 +92,80 @@ func TestDiscoverHolonsDedupsSameUUIDClosestToRoot(t *testing.T) {
 	}
 }
 
+func TestDiscoverHolonsFindsProtoHolonWithLocalContractImport(t *testing.T) {
+	root := t.TempDir()
+	writeSharedHolonManifestProto(t, root)
+
+	dir := filepath.Join(root, "grace-op")
+	if err := os.MkdirAll(filepath.Join(dir, "api", "v1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	holonProto := `syntax = "proto3";
+
+package op.v1;
+
+import "holons/v1/manifest.proto";
+
+option go_package = "example.com/grace-op/gen/go/op/v1;opv1";
+
+option (holons.v1.manifest) = {
+  identity: {
+    schema: "holon/v1"
+    uuid: "28f22ab5-c62d-41f8-9ada-e34333060ff9"
+    given_name: "Grace"
+    family_name: "OP"
+    motto: "One command, every holon."
+    composer: "B. ALTER"
+    status: "draft"
+    born: "2026-02-12"
+  }
+  lang: "go"
+  kind: "native"
+  build: {
+    runner: "go-module"
+    main: "./cmd/op"
+  }
+  requires: {
+    commands: ["go"]
+    files: ["go.mod"]
+  }
+  artifacts: {
+    binary: "op"
+  }
+  contract: {
+    proto: "api/v1/holon.proto"
+    service: "op.v1.OPService"
+    rpcs: ["Discover"]
+  }
+};
+
+service OPService {
+  rpc Discover (DiscoverRequest) returns (DiscoverResponse);
+}
+
+message DiscoverRequest {}
+message DiscoverResponse {}
+`
+	if err := os.WriteFile(filepath.Join(dir, "api", "v1", "holon.proto"), []byte(holonProto), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	located, err := DiscoverHolons(dir)
+	if err != nil {
+		t.Fatalf("DiscoverHolons returned error: %v", err)
+	}
+	if len(located) != 1 {
+		t.Fatalf("located = %d, want 1", len(located))
+	}
+	if got := located[0].Identity.GivenName; got != "Grace" {
+		t.Fatalf("given_name = %q, want %q", got, "Grace")
+	}
+	if got := filepath.Base(located[0].IdentityPath); got != identity.ProtoManifestFileName {
+		t.Fatalf("identity path basename = %q, want %q", got, identity.ProtoManifestFileName)
+	}
+}
+
 func TestResolveTargetRejectsAmbiguousSlugWithDifferentUUIDs(t *testing.T) {
 	root := t.TempDir()
 	chdirForHolonTest(t, root)

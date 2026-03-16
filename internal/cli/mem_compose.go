@@ -8,6 +8,7 @@ import (
 	sdkconnect "github.com/organic-programming/go-holons/pkg/connect"
 	holonsgrpcclient "github.com/organic-programming/go-holons/pkg/grpcclient"
 	"github.com/organic-programming/go-holons/pkg/transport"
+	"github.com/organic-programming/grace-op/api"
 	opv1 "github.com/organic-programming/grace-op/gen/go/op/v1"
 	"github.com/organic-programming/grace-op/internal/server"
 
@@ -34,7 +35,7 @@ func ensureGraceOPMemListener() *transport.MemListener {
 		graceOPMemListener = transport.NewMemListener()
 
 		grpcServer := grpc.NewServer()
-		opv1.RegisterOPServiceServer(grpcServer, &server.Server{})
+		opv1.RegisterOPServiceServer(grpcServer, server.New(api.RPCHandler{}))
 		grpcreflection.Register(grpcServer)
 
 		go func() {

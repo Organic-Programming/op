@@ -1,4 +1,4 @@
-package server
+package server_test
 
 import (
 	"context"
@@ -9,9 +9,11 @@ import (
 	"testing"
 
 	"github.com/organic-programming/go-holons/pkg/transport"
+	"github.com/organic-programming/grace-op/api"
 	opv1 "github.com/organic-programming/grace-op/gen/go/op/v1"
 	"github.com/organic-programming/grace-op/internal/grpcclient"
 	"github.com/organic-programming/grace-op/internal/identity"
+	"github.com/organic-programming/grace-op/internal/server"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -35,7 +37,7 @@ func startTestServer(t *testing.T, root string) (opv1.OPServiceClient, func()) {
 
 	lis := bufconn.Listen(bufSize)
 	s := grpc.NewServer()
-	opv1.RegisterOPServiceServer(s, &Server{})
+	opv1.RegisterOPServiceServer(s, server.New(api.RPCHandler{}))
 
 	go func() { _ = s.Serve(lis) }()
 
@@ -279,7 +281,7 @@ func TestListenAndServePortConflict(t *testing.T) {
 	defer lis.Close()
 
 	port := lis.Addr().(*net.TCPAddr).Port
-	err = ListenAndServe(fmt.Sprintf("tcp://:%d", port), true)
+	err = server.ListenAndServe(fmt.Sprintf("tcp://:%d", port), true, api.RPCHandler{})
 	if err == nil {
 		t.Fatal("expected error for port conflict")
 	}
@@ -302,7 +304,7 @@ func TestMemTransport(t *testing.T) {
 
 	mem := transport.NewMemListener()
 	s := grpc.NewServer()
-	opv1.RegisterOPServiceServer(s, &Server{})
+	opv1.RegisterOPServiceServer(s, server.New(api.RPCHandler{}))
 	go func() { _ = s.Serve(mem) }()
 	defer s.Stop()
 
@@ -350,7 +352,7 @@ func TestWSTransport(t *testing.T) {
 	defer wsLis.Close()
 
 	s := grpc.NewServer()
-	opv1.RegisterOPServiceServer(s, &Server{})
+	opv1.RegisterOPServiceServer(s, server.New(api.RPCHandler{}))
 	reflection.Register(s)
 	go func() { _ = s.Serve(wsLis) }()
 	defer s.Stop()

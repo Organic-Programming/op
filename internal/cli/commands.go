@@ -18,6 +18,7 @@ import (
 	"text/tabwriter"
 
 	sdkconnect "github.com/organic-programming/go-holons/pkg/connect"
+	"github.com/organic-programming/grace-op/api"
 	"github.com/organic-programming/grace-op/internal/grpcclient"
 	"github.com/organic-programming/grace-op/internal/holons"
 	"github.com/organic-programming/grace-op/internal/server"
@@ -297,7 +298,7 @@ func cmdServe(args []string) int {
 	noReflect := flagValue(args, "--no-reflect")
 	reflect := noReflect == ""
 
-	if err := server.ListenAndServe(listenURI, reflect); err != nil {
+	if err := server.ListenAndServe(listenURI, reflect, api.RPCHandler{}); err != nil {
 		fmt.Fprintf(os.Stderr, "op serve: %v\n", err)
 		return 1
 	}

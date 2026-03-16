@@ -2352,7 +2352,7 @@ func writeProtoInstallFixture(t *testing.T, root, name string) string {
 	if err := os.MkdirAll(filepath.Join(dir, "cmd", name), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(dir, "v1"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "api", "v1"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/"+name+"\n\ngo 1.24.0\n"), 0o644); err != nil {
@@ -2369,38 +2369,33 @@ package test.v1;
 
 import "holons/v1/manifest.proto";
 
-option (holons.v1.manifest) = {
-  identity: {
-    schema: "holon/v1"
-    uuid: "%s-uuid"
-    given_name: "Demo"
-    family_name: "Proto"
-    motto: "Proto-backed install fixture."
-    composer: "test"
-    clade: "deterministic/pure"
-    status: "draft"
-    born: "2026-03-15"
-  }
-  lineage: {
-    reproduction: "manual"
-    generated_by: "test"
-  }
-  kind: "native"
-  lang: "go"
-  build: {
-    runner: "go-module"
-    main: "./cmd/%s"
-  }
-  requires: {
-    commands: ["go"]
-    files: ["go.mod"]
-  }
-  artifacts: {
-    binary: "%s"
-  }
-};
+	option (holons.v1.manifest) = {
+	  identity: {
+	    schema: "holon/v1"
+	    uuid: "%s-uuid"
+	    given_name: "Demo"
+	    family_name: "Proto"
+	    motto: "Proto-backed install fixture."
+	    composer: "test"
+	    status: "draft"
+	    born: "2026-03-15"
+	  }
+	  kind: "native"
+	  lang: "go"
+	  build: {
+	    runner: "go-module"
+	    main: "./cmd/%s"
+	  }
+	  requires: {
+	    commands: ["go"]
+	    files: ["go.mod"]
+	  }
+	  artifacts: {
+	    binary: "%s"
+	  }
+	};
 `, name, name, name)
-	if err := os.WriteFile(filepath.Join(dir, "v1", "holon.proto"), []byte(proto), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "api", "v1", "holon.proto"), []byte(proto), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

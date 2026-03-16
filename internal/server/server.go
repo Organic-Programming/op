@@ -1,125 +1,172 @@
-// Package server implements OP's gRPC service — the network facet.
+// Package server implements OP's gRPC transport adapter.
 package server
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"log"
-	"os/exec"
-	"strings"
 
 	"github.com/organic-programming/go-holons/pkg/transport"
 	opv1 "github.com/organic-programming/grace-op/gen/go/op/v1"
-	"github.com/organic-programming/grace-op/internal/holons"
-	"github.com/organic-programming/grace-op/internal/who"
-	"github.com/organic-programming/grace-op/internal/identity"
 
 	"google.golang.org/grpc"
 	grpcReflection "google.golang.org/grpc/reflection"
 )
 
-// Server implements the OPService gRPC interface.
+type Handler interface {
+	Discover(context.Context, *opv1.DiscoverRequest) (*opv1.DiscoverResponse, error)
+	Invoke(context.Context, *opv1.InvokeRequest) (*opv1.InvokeResponse, error)
+	CreateIdentity(context.Context, *opv1.CreateIdentityRequest) (*opv1.CreateIdentityResponse, error)
+	ListIdentities(context.Context, *opv1.ListIdentitiesRequest) (*opv1.ListIdentitiesResponse, error)
+	ShowIdentity(context.Context, *opv1.ShowIdentityRequest) (*opv1.ShowIdentityResponse, error)
+	ListTemplates(context.Context, *opv1.ListTemplatesRequest) (*opv1.ListTemplatesResponse, error)
+	GenerateTemplate(context.Context, *opv1.GenerateTemplateRequest) (*opv1.GenerateTemplateResponse, error)
+	Check(context.Context, *opv1.LifecycleRequest) (*opv1.LifecycleResponse, error)
+	Build(context.Context, *opv1.LifecycleRequest) (*opv1.LifecycleResponse, error)
+	Test(context.Context, *opv1.LifecycleRequest) (*opv1.LifecycleResponse, error)
+	Clean(context.Context, *opv1.LifecycleRequest) (*opv1.LifecycleResponse, error)
+	Install(context.Context, *opv1.InstallRequest) (*opv1.InstallResponse, error)
+	Uninstall(context.Context, *opv1.UninstallRequest) (*opv1.InstallResponse, error)
+	Run(context.Context, *opv1.RunRequest) (*opv1.RunResponse, error)
+	Inspect(context.Context, *opv1.InspectRequest) (*opv1.InspectResponse, error)
+	RunSequence(context.Context, *opv1.RunSequenceRequest) (*opv1.RunSequenceResponse, error)
+	ModInit(context.Context, *opv1.ModInitRequest) (*opv1.ModInitResponse, error)
+	ModAdd(context.Context, *opv1.ModAddRequest) (*opv1.ModAddResponse, error)
+	ModRemove(context.Context, *opv1.ModRemoveRequest) (*opv1.ModRemoveResponse, error)
+	ModTidy(context.Context, *opv1.ModTidyRequest) (*opv1.ModTidyResponse, error)
+	ModPull(context.Context, *opv1.ModPullRequest) (*opv1.ModPullResponse, error)
+	ModUpdate(context.Context, *opv1.ModUpdateRequest) (*opv1.ModUpdateResponse, error)
+	ModList(context.Context, *opv1.ModListRequest) (*opv1.ModListResponse, error)
+	ModGraph(context.Context, *opv1.ModGraphRequest) (*opv1.ModGraphResponse, error)
+	Tools(context.Context, *opv1.ToolsRequest) (*opv1.ToolsResponse, error)
+	Env(context.Context, *opv1.EnvRequest) (*opv1.EnvResponse, error)
+}
+
 type Server struct {
 	opv1.UnimplementedOPServiceServer
+	handler Handler
 }
 
-// --- OP-native RPCs ---
+func New(handler Handler) *Server {
+	return &Server{handler: handler}
+}
 
-// Discover scans for all known holons.
 func (s *Server) Discover(ctx context.Context, req *opv1.DiscoverRequest) (*opv1.DiscoverResponse, error) {
-	root := req.RootDir
-	if root == "" {
-		root = "."
-	}
-
-	localHolons, err := holons.DiscoverHolons(root)
-	if err != nil {
-		return nil, err
-	}
-
-	entries := make([]*opv1.HolonEntry, 0, len(localHolons))
-	for _, h := range localHolons {
-		entries = append(entries, &opv1.HolonEntry{
-			Identity:     toProto(h.Identity),
-			Origin:       h.Origin,
-			RelativePath: h.RelativePath,
-		})
-	}
-
-	pathBinaries := holons.DiscoverInPath()
-
-	return &opv1.DiscoverResponse{
-		Entries:      entries,
-		PathBinaries: pathBinaries,
-	}, nil
+	return s.handler.Discover(ctx, req)
 }
 
-// Invoke dispatches a command to a holon by name.
 func (s *Server) Invoke(ctx context.Context, req *opv1.InvokeRequest) (*opv1.InvokeResponse, error) {
-	binary, err := holons.ResolveBinary(req.Holon)
-	if err != nil {
-		return &opv1.InvokeResponse{
-			ExitCode: 1,
-			Stderr:   fmt.Sprintf("holon %q not found", req.Holon),
-		}, nil
-	}
-
-	cmd := exec.CommandContext(ctx, binary, req.Args...)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	exitCode := int32(0)
-	if err := cmd.Run(); err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			exitCode = int32(exitErr.ExitCode())
-		} else {
-			return nil, fmt.Errorf("failed to run %s: %w", req.Holon, err)
-		}
-	}
-
-	return &opv1.InvokeResponse{
-		ExitCode: exitCode,
-		Stdout:   stdout.String(),
-		Stderr:   stderr.String(),
-	}, nil
+	return s.handler.Invoke(ctx, req)
 }
 
-// --- Promoted identity RPCs ---
-
-// CreateIdentity creates a new holon identity.
 func (s *Server) CreateIdentity(ctx context.Context, req *opv1.CreateIdentityRequest) (*opv1.CreateIdentityResponse, error) {
-	return who.Create(req)
+	return s.handler.CreateIdentity(ctx, req)
 }
 
-// ListIdentities lists all known holon identities.
 func (s *Server) ListIdentities(ctx context.Context, req *opv1.ListIdentitiesRequest) (*opv1.ListIdentitiesResponse, error) {
-	root := "."
-	if req != nil && req.GetRootDir() != "" {
-		root = req.GetRootDir()
-	}
-	return who.List(root)
+	return s.handler.ListIdentities(ctx, req)
 }
 
-// ShowIdentity retrieves a holon's identity by UUID.
 func (s *Server) ShowIdentity(ctx context.Context, req *opv1.ShowIdentityRequest) (*opv1.ShowIdentityResponse, error) {
-	if req == nil {
-		return nil, fmt.Errorf("uuid is required")
-	}
-	return who.Show(req.GetUuid())
+	return s.handler.ShowIdentity(ctx, req)
 }
 
-// ListenAndServe starts the gRPC server on the given transport URI.
-// Supported URIs: tcp://<host>:<port>, unix://<path>, stdio://
-func ListenAndServe(listenURI string, reflect bool) error {
+func (s *Server) ListTemplates(ctx context.Context, req *opv1.ListTemplatesRequest) (*opv1.ListTemplatesResponse, error) {
+	return s.handler.ListTemplates(ctx, req)
+}
+
+func (s *Server) GenerateTemplate(ctx context.Context, req *opv1.GenerateTemplateRequest) (*opv1.GenerateTemplateResponse, error) {
+	return s.handler.GenerateTemplate(ctx, req)
+}
+
+func (s *Server) Check(ctx context.Context, req *opv1.LifecycleRequest) (*opv1.LifecycleResponse, error) {
+	return s.handler.Check(ctx, req)
+}
+
+func (s *Server) Build(ctx context.Context, req *opv1.LifecycleRequest) (*opv1.LifecycleResponse, error) {
+	return s.handler.Build(ctx, req)
+}
+
+func (s *Server) Test(ctx context.Context, req *opv1.LifecycleRequest) (*opv1.LifecycleResponse, error) {
+	return s.handler.Test(ctx, req)
+}
+
+func (s *Server) Clean(ctx context.Context, req *opv1.LifecycleRequest) (*opv1.LifecycleResponse, error) {
+	return s.handler.Clean(ctx, req)
+}
+
+func (s *Server) Install(ctx context.Context, req *opv1.InstallRequest) (*opv1.InstallResponse, error) {
+	return s.handler.Install(ctx, req)
+}
+
+func (s *Server) Uninstall(ctx context.Context, req *opv1.UninstallRequest) (*opv1.InstallResponse, error) {
+	return s.handler.Uninstall(ctx, req)
+}
+
+func (s *Server) Run(ctx context.Context, req *opv1.RunRequest) (*opv1.RunResponse, error) {
+	return s.handler.Run(ctx, req)
+}
+
+func (s *Server) Inspect(ctx context.Context, req *opv1.InspectRequest) (*opv1.InspectResponse, error) {
+	return s.handler.Inspect(ctx, req)
+}
+
+func (s *Server) RunSequence(ctx context.Context, req *opv1.RunSequenceRequest) (*opv1.RunSequenceResponse, error) {
+	return s.handler.RunSequence(ctx, req)
+}
+
+func (s *Server) ModInit(ctx context.Context, req *opv1.ModInitRequest) (*opv1.ModInitResponse, error) {
+	return s.handler.ModInit(ctx, req)
+}
+
+func (s *Server) ModAdd(ctx context.Context, req *opv1.ModAddRequest) (*opv1.ModAddResponse, error) {
+	return s.handler.ModAdd(ctx, req)
+}
+
+func (s *Server) ModRemove(ctx context.Context, req *opv1.ModRemoveRequest) (*opv1.ModRemoveResponse, error) {
+	return s.handler.ModRemove(ctx, req)
+}
+
+func (s *Server) ModTidy(ctx context.Context, req *opv1.ModTidyRequest) (*opv1.ModTidyResponse, error) {
+	return s.handler.ModTidy(ctx, req)
+}
+
+func (s *Server) ModPull(ctx context.Context, req *opv1.ModPullRequest) (*opv1.ModPullResponse, error) {
+	return s.handler.ModPull(ctx, req)
+}
+
+func (s *Server) ModUpdate(ctx context.Context, req *opv1.ModUpdateRequest) (*opv1.ModUpdateResponse, error) {
+	return s.handler.ModUpdate(ctx, req)
+}
+
+func (s *Server) ModList(ctx context.Context, req *opv1.ModListRequest) (*opv1.ModListResponse, error) {
+	return s.handler.ModList(ctx, req)
+}
+
+func (s *Server) ModGraph(ctx context.Context, req *opv1.ModGraphRequest) (*opv1.ModGraphResponse, error) {
+	return s.handler.ModGraph(ctx, req)
+}
+
+func (s *Server) Tools(ctx context.Context, req *opv1.ToolsRequest) (*opv1.ToolsResponse, error) {
+	return s.handler.Tools(ctx, req)
+}
+
+func (s *Server) Env(ctx context.Context, req *opv1.EnvRequest) (*opv1.EnvResponse, error) {
+	return s.handler.Env(ctx, req)
+}
+
+func ListenAndServe(listenURI string, reflect bool, handler Handler) error {
+	if handler == nil {
+		return fmt.Errorf("server handler not configured")
+	}
+
 	lis, err := transport.Listen(listenURI)
 	if err != nil {
 		return fmt.Errorf("listen %s: %w", listenURI, err)
 	}
 
 	s := grpc.NewServer()
-	opv1.RegisterOPServiceServer(s, &Server{})
+	opv1.RegisterOPServiceServer(s, New(handler))
 	if reflect {
 		grpcReflection.Register(s)
 	}
@@ -130,80 +177,4 @@ func ListenAndServe(listenURI string, reflect bool) error {
 	}
 	log.Printf("OP gRPC server listening on %s (%s)", listenURI, mode)
 	return s.Serve(lis)
-}
-
-// --- Helpers ---
-
-func toProto(id identity.Identity) *opv1.HolonIdentity {
-	return &opv1.HolonIdentity{
-		Uuid:         id.UUID,
-		GivenName:    id.GivenName,
-		FamilyName:   id.FamilyName,
-		Motto:        id.Motto,
-		Composer:     id.Composer,
-		Clade:        cladeToProto(id.Clade),
-		Status:       statusToProto(id.Status),
-		Born:         id.Born,
-		Parents:      id.Parents,
-		Reproduction: reproductionToProto(id.Reproduction),
-		Aliases:      id.Aliases,
-		GeneratedBy:  id.GeneratedBy,
-		Lang:         id.Lang,
-		ProtoStatus:  statusToProto(id.ProtoStatus),
-	}
-}
-
-func cladeToProto(value string) opv1.Clade {
-	switch lowerTrim(value) {
-	case "deterministic/pure":
-		return opv1.Clade_DETERMINISTIC_PURE
-	case "deterministic/stateful":
-		return opv1.Clade_DETERMINISTIC_STATEFUL
-	case "deterministic/io_bound":
-		return opv1.Clade_DETERMINISTIC_IO_BOUND
-	case "probabilistic/generative":
-		return opv1.Clade_PROBABILISTIC_GENERATIVE
-	case "probabilistic/perceptual":
-		return opv1.Clade_PROBABILISTIC_PERCEPTUAL
-	case "probabilistic/adaptive":
-		return opv1.Clade_PROBABILISTIC_ADAPTIVE
-	default:
-		return opv1.Clade_CLADE_UNSPECIFIED
-	}
-}
-
-func statusToProto(value string) opv1.Status {
-	switch lowerTrim(value) {
-	case "draft":
-		return opv1.Status_DRAFT
-	case "stable":
-		return opv1.Status_STABLE
-	case "deprecated":
-		return opv1.Status_DEPRECATED
-	case "dead":
-		return opv1.Status_DEAD
-	default:
-		return opv1.Status_STATUS_UNSPECIFIED
-	}
-}
-
-func reproductionToProto(value string) opv1.ReproductionMode {
-	switch lowerTrim(value) {
-	case "manual":
-		return opv1.ReproductionMode_MANUAL
-	case "assisted":
-		return opv1.ReproductionMode_ASSISTED
-	case "automatic":
-		return opv1.ReproductionMode_AUTOMATIC
-	case "autopoietic":
-		return opv1.ReproductionMode_AUTOPOIETIC
-	case "bred":
-		return opv1.ReproductionMode_BRED
-	default:
-		return opv1.ReproductionMode_REPRODUCTION_UNSPECIFIED
-	}
-}
-
-func lowerTrim(value string) string {
-	return strings.ToLower(strings.TrimSpace(value))
 }

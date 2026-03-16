@@ -123,7 +123,7 @@ func buildReleaseTarget(root, distRoot, version, commit string, target releaseTa
 		"build",
 		"-trimpath",
 		"-ldflags",
-		fmt.Sprintf("-s -w -X main.version=%s -X main.commit=%s", version, commit),
+		fmt.Sprintf("-s -w -X github.com/organic-programming/grace-op/api.Version=%s -X github.com/organic-programming/grace-op/api.Commit=%s", version, commit),
 		"-o",
 		binaryPath,
 		"./cmd/op",
