@@ -121,6 +121,9 @@ func ExecuteLifecycle(op Operation, ref string, opts ...BuildOptions) (Report, e
 		return report, nil
 	case OperationBuild:
 		err = r.build(target.Manifest, ctx, &report)
+		if err == nil && !ctx.DryRun && !isAggregateBuildTarget(ctx.Target) {
+			err = writeHolonJSON(target.Manifest)
+		}
 		if err == nil && !isAggregateBuildTarget(ctx.Target) {
 			reporter.Step("verifying artifact...")
 			err = resolveArtifact(target.Manifest, ctx, &report)
@@ -164,6 +167,15 @@ func verifyArtifact(manifest *LoadedManifest, ctx BuildContext, report *Report) 
 	}
 	if _, err := os.Stat(artifactPath); err != nil {
 		return fmt.Errorf("primary artifact missing after build: %s", workspaceRelativePath(artifactPath))
+	}
+	if shouldWriteHolonJSON(manifest) {
+		if _, err := os.Stat(manifest.BinaryPath()); err != nil {
+			return fmt.Errorf("binary missing after build: %s", workspaceRelativePath(manifest.BinaryPath()))
+		}
+		holonJSONPath := filepath.Join(artifactPath, ".holon.json")
+		if _, err := os.Stat(holonJSONPath); err != nil {
+			return fmt.Errorf(".holon.json missing after build: %s", workspaceRelativePath(holonJSONPath))
+		}
 	}
 	report.Artifact = workspaceRelativePath(artifactPath)
 	report.Notes = append(report.Notes, fmt.Sprintf("artifact: %s", report.Artifact))
@@ -377,7 +389,7 @@ func (r cmakeRunner) build(manifest *LoadedManifest, ctx BuildContext, report *R
 	}
 
 	config := cmakeBuildConfig(ctx.Mode)
-	binDir := filepath.Join(manifest.Dir, ".op", "build", "bin")
+	binDir := filepath.Dir(manifest.BinaryPath())
 	configureArgs := []string{
 		"cmake",
 		"-S", ".",
@@ -562,6 +574,8 @@ func (r recipeRunner) executeStep(manifest *LoadedManifest, ctx BuildContext, st
 		return r.stepExec(manifest, ctx, step.Exec, report)
 	case step.Copy != nil:
 		return r.stepCopy(manifest, ctx, step.Copy, report)
+	case step.CopyArtifact != nil:
+		return r.stepCopyArtifact(manifest, ctx, step.CopyArtifact, members, report)
 	case step.AssertFile != nil:
 		return r.stepAssertFile(manifest, ctx, step.AssertFile, report)
 	default:
@@ -662,6 +676,44 @@ func (recipeRunner) stepCopy(manifest *LoadedManifest, ctx BuildContext, c *Reci
 	}
 
 	report.Notes = append(report.Notes, fmt.Sprintf("copied %s → %s", c.From, c.To))
+	return nil
+}
+
+func (recipeRunner) stepCopyArtifact(manifest *LoadedManifest, ctx BuildContext, ca *RecipeStepCopyArtifact, members map[string]RecipeMember, report *Report) error {
+	member, ok := members[ca.From]
+	if !ok {
+		return fmt.Errorf("copy_artifact: unknown member %q", ca.From)
+	}
+
+	memberDir, err := manifest.ResolveManifestPath(member.Path)
+	if err != nil {
+		return fmt.Errorf("copy_artifact member %q path: %w", ca.From, err)
+	}
+	memberManifest, err := LoadManifest(memberDir)
+	if err != nil {
+		return fmt.Errorf("copy_artifact member %q manifest: %w", ca.From, err)
+	}
+
+	srcDir := memberManifest.HolonPackageDir()
+	dstDir, err := manifest.ResolveManifestPath(ca.To)
+	if err != nil {
+		return fmt.Errorf("copy_artifact to %q: %w", ca.To, err)
+	}
+
+	report.Commands = append(report.Commands, fmt.Sprintf("copy_artifact %s -> %s", ca.From, ca.To))
+	ctx.Progress.Step(fmt.Sprintf("copy_artifact %s -> %s", ca.From, ca.To))
+	if ctx.DryRun {
+		return nil
+	}
+
+	if _, err := os.Stat(srcDir); err != nil {
+		return fmt.Errorf("copy_artifact source missing for %q: %s", ca.From, workspaceRelativePath(srcDir))
+	}
+	if err := copyArtifact(srcDir, dstDir); err != nil {
+		return err
+	}
+
+	report.Notes = append(report.Notes, fmt.Sprintf("copied artifact %s → %s", ca.From, ca.To))
 	return nil
 }
 

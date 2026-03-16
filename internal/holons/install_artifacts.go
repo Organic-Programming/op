@@ -17,6 +17,10 @@ func isMacAppBundlePath(path string) bool {
 	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(path)), ".app")
 }
 
+func isHolonPackagePath(path string) bool {
+	return strings.HasSuffix(strings.ToLower(strings.TrimSpace(path)), ".holon")
+}
+
 func installedArtifactCandidates(name string) []string {
 	trimmed := strings.TrimSpace(name)
 	if trimmed == "" {
@@ -24,6 +28,7 @@ func installedArtifactCandidates(name string) []string {
 	}
 	candidates := []string{trimmed}
 	if filepath.Ext(trimmed) == "" {
+		candidates = append(candidates, trimmed+".holon")
 		switch runtime.GOOS {
 		case "darwin":
 			candidates = append(candidates, trimmed+".app")
@@ -41,7 +46,7 @@ func lookupInstalledArtifactInOPBIN(name string) string {
 		if err != nil {
 			continue
 		}
-		if info.IsDir() && !isMacAppBundlePath(installed) {
+		if info.IsDir() && !isMacAppBundlePath(installed) && !isHolonPackagePath(installed) {
 			continue
 		}
 		return installed
@@ -49,7 +54,32 @@ func lookupInstalledArtifactInOPBIN(name string) string {
 	return ""
 }
 
+func lookupInstalledLaunchableInOPBIN(name string) string {
+	artifactPath := lookupInstalledArtifactInOPBIN(name)
+	if artifactPath == "" {
+		return ""
+	}
+
+	info, err := os.Stat(artifactPath)
+	if err != nil {
+		return ""
+	}
+	if !info.IsDir() || isMacAppBundlePath(artifactPath) {
+		return artifactPath
+	}
+	if !isHolonPackagePath(artifactPath) {
+		return ""
+	}
+	return firstLaunchableBinaryInPackage(artifactPath, name)
+}
+
 func installNameForArtifact(target *Target, artifactPath string) string {
+	if isHolonPackagePath(artifactPath) {
+		return filepath.Base(artifactPath)
+	}
+	if info, err := os.Stat(artifactPath); err == nil && info.IsDir() && isHolonPackagePath(artifactPath) {
+		return filepath.Base(artifactPath)
+	}
 	if target != nil && target.Manifest != nil && !manifestHasPrimaryArtifact(target.Manifest) {
 		if binary := target.Manifest.BinaryName(); binary != "" {
 			return binary
@@ -79,6 +109,41 @@ func installNameForArtifact(target *Target, artifactPath string) string {
 		return base + ext
 	}
 	return base
+}
+
+func PackageBinaryPath(packageDir, binaryName string) string {
+	trimmedDir := strings.TrimSpace(packageDir)
+	trimmedBinary := strings.TrimSpace(binaryName)
+	if trimmedDir == "" || trimmedBinary == "" {
+		return ""
+	}
+	return filepath.Join(trimmedDir, "bin", runtimeArchitecture(), trimmedBinary)
+}
+
+func LaunchableArtifactPath(artifactPath string, manifest *LoadedManifest) string {
+	trimmed := strings.TrimSpace(artifactPath)
+	if trimmed == "" || manifest == nil {
+		return trimmed
+	}
+	if manifest.Manifest.Kind != KindNative && manifest.Manifest.Kind != KindWrapper {
+		return trimmed
+	}
+	if isHolonPackagePath(trimmed) {
+		if binaryPath := PackageBinaryPath(trimmed, manifest.BinaryName()); binaryPath != "" {
+			return binaryPath
+		}
+		return trimmed
+	}
+
+	info, err := os.Stat(trimmed)
+	if err != nil || !info.IsDir() || isMacAppBundlePath(trimmed) || !isHolonPackagePath(trimmed) {
+		return trimmed
+	}
+
+	if binaryPath := PackageBinaryPath(trimmed, manifest.BinaryName()); binaryPath != "" {
+		return binaryPath
+	}
+	return trimmed
 }
 
 func copyArtifact(src, dst string) error {
@@ -122,6 +187,36 @@ func copyDir(src, dst string) error {
 		}
 		return copyFile(path, targetPath)
 	})
+}
+
+func firstLaunchableBinaryInPackage(packageDir, preferredName string) string {
+	for _, candidate := range packageBinaryCandidates(packageDir, preferredName) {
+		if fileExists(candidate) {
+			return candidate
+		}
+	}
+
+	archDir := filepath.Join(packageDir, "bin", runtimeArchitecture())
+	entries, err := os.ReadDir(archDir)
+	if err != nil {
+		return ""
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			return filepath.Join(archDir, entry.Name())
+		}
+	}
+	return ""
+}
+
+func packageBinaryCandidates(packageDir, preferredName string) []string {
+	trimmed := strings.TrimSpace(preferredName)
+	names := uniqueNonEmpty([]string{trimmed, hostExecutableName(trimmed)})
+	candidates := make([]string, 0, len(names))
+	for _, name := range names {
+		candidates = append(candidates, filepath.Join(packageDir, "bin", runtimeArchitecture(), name))
+	}
+	return candidates
 }
 
 func linkBundleIntoApplications(installedPath string) (string, error) {

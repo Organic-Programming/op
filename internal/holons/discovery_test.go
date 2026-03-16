@@ -304,6 +304,27 @@ func TestResolveInstalledBinaryFindsAppBundleBySlug(t *testing.T) {
 	}
 }
 
+func TestResolveInstalledBinaryFindsHolonPackageBySlug(t *testing.T) {
+	root := t.TempDir()
+	opbin := filepath.Join(root, "bin")
+	t.Setenv("OPPATH", root)
+	t.Setenv("OPBIN", opbin)
+
+	packageDir := filepath.Join(opbin, "gabriel-greeting-go.holon")
+	binaryPath := filepath.Join(packageDir, "bin", runtimeArchitecture(), "gabriel-greeting-go")
+	if err := os.MkdirAll(filepath.Dir(binaryPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(binaryPath, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	resolved := ResolveInstalledBinary("gabriel-greeting-go")
+	if resolved != binaryPath {
+		t.Fatalf("ResolveInstalledBinary() = %q, want %q", resolved, binaryPath)
+	}
+}
+
 type discoveryHolonSeed struct {
 	uuid       string
 	givenName  string

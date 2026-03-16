@@ -377,7 +377,7 @@ func TestCommandForInstalledArtifactIncludesCompositeAssemblyEnv(t *testing.T) {
 
 func TestCommandForArtifactDoesNotAddAssemblyEnvForNativeHolons(t *testing.T) {
 	root := t.TempDir()
-	binaryPath := filepath.Join(root, ".op", "build", "bin", "gudule-daemon-greeting-rust")
+	binaryPath := filepath.Join(root, ".op", "build", "gudule-daemon-greeting-rust.holon", "bin", runtime.GOOS+"_"+runtime.GOARCH, "gudule-daemon-greeting-rust")
 	if err := os.MkdirAll(filepath.Dir(binaryPath), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -860,9 +860,9 @@ func TestInstallCommand(t *testing.T) {
 		}
 	})
 
-	installed := filepath.Join(root, ".runtime", "bin", "demo")
-	if _, err := os.Stat(installed); err != nil {
-		t.Fatalf("installed binary missing: %v", err)
+	installed := filepath.Join(root, ".runtime", "bin", "demo.holon")
+	if _, err := os.Stat(filepath.Join(installed, "bin", runtime.GOOS+"_"+runtime.GOARCH, "demo")); err != nil {
+		t.Fatalf("installed package binary missing: %v", err)
 	}
 	if !strings.Contains(output, "Installed: "+installed) {
 		t.Fatalf("install output missing installed path: %q", output)
@@ -883,7 +883,7 @@ func TestInstallCommandRebuildsExistingArtifact(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(dir, "cmd", "demo"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(dir, ".op", "build", "bin"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".op", "build", "demo.holon", "bin", runtime.GOOS+"_"+runtime.GOARCH), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/demo\n\ngo 1.24.0\n"), 0o644); err != nil {
@@ -902,7 +902,7 @@ func TestInstallCommandRebuildsExistingArtifact(t *testing.T) {
 		staleArtifact = []byte("@echo off\r\necho stale\r\n")
 		staleMode = 0o644
 	}
-	if err := os.WriteFile(filepath.Join(dir, ".op", "build", "bin", "demo"), staleArtifact, staleMode); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, ".op", "build", "demo.holon", "bin", runtime.GOOS+"_"+runtime.GOARCH, "demo"), staleArtifact, staleMode); err != nil {
 		t.Fatal(err)
 	}
 
@@ -913,8 +913,8 @@ func TestInstallCommandRebuildsExistingArtifact(t *testing.T) {
 		}
 	})
 
-	installed := filepath.Join(root, ".runtime", "bin", "demo")
-	result, err := exec.Command(installed).CombinedOutput()
+	installed := filepath.Join(root, ".runtime", "bin", "demo.holon")
+	result, err := exec.Command(filepath.Join(installed, "bin", runtime.GOOS+"_"+runtime.GOARCH, "demo")).CombinedOutput()
 	if err != nil {
 		t.Fatalf("running installed binary failed: %v\noutput=%s", err, result)
 	}
@@ -971,8 +971,8 @@ func TestInstallCommandJSONFormat(t *testing.T) {
 	if payload.Binary != "demo" {
 		t.Fatalf("binary = %q, want demo", payload.Binary)
 	}
-	if payload.Installed != filepath.Join(root, ".runtime", "bin", "demo") {
-		t.Fatalf("installed = %q, want %q", payload.Installed, filepath.Join(root, ".runtime", "bin", "demo"))
+	if payload.Installed != filepath.Join(root, ".runtime", "bin", "demo.holon") {
+		t.Fatalf("installed = %q, want %q", payload.Installed, filepath.Join(root, ".runtime", "bin", "demo.holon"))
 	}
 }
 
@@ -995,9 +995,9 @@ func TestInstallCommandProtoManifest(t *testing.T) {
 		}
 	})
 
-	installed := filepath.Join(root, ".runtime", "bin", "demo-proto")
-	if _, err := os.Stat(installed); err != nil {
-		t.Fatalf("installed binary missing: %v", err)
+	installed := filepath.Join(root, ".runtime", "bin", "demo-proto.holon")
+	if _, err := os.Stat(filepath.Join(installed, "bin", runtime.GOOS+"_"+runtime.GOARCH, "demo-proto")); err != nil {
+		t.Fatalf("installed package binary missing: %v", err)
 	}
 	if !strings.Contains(output, "Installed: "+installed) {
 		t.Fatalf("install output missing installed path: %q", output)
@@ -1330,8 +1330,11 @@ func TestUninstallCommand(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, ".runtime", "bin"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	installed := filepath.Join(root, ".runtime", "bin", "demo")
-	if err := os.WriteFile(installed, []byte("#!/bin/sh\n"), 0o755); err != nil {
+	installed := filepath.Join(root, ".runtime", "bin", "demo.holon")
+	if err := os.MkdirAll(filepath.Join(installed, "bin", runtime.GOOS+"_"+runtime.GOARCH), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(installed, "bin", runtime.GOOS+"_"+runtime.GOARCH, "demo"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1340,7 +1343,7 @@ func TestUninstallCommand(t *testing.T) {
 		t.Fatalf("uninstall returned %d, want 0", code)
 	}
 	if _, err := os.Stat(installed); !os.IsNotExist(err) {
-		t.Fatalf("installed binary still exists: %v", err)
+		t.Fatalf("installed package still exists: %v", err)
 	}
 }
 
@@ -1399,8 +1402,11 @@ func TestUninstallCommandJSONFormat(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, ".runtime", "bin"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	installed := filepath.Join(root, ".runtime", "bin", "demo")
-	if err := os.WriteFile(installed, []byte("#!/bin/sh\n"), 0o755); err != nil {
+	installed := filepath.Join(root, ".runtime", "bin", "demo.holon")
+	if err := os.MkdirAll(filepath.Join(installed, "bin", runtime.GOOS+"_"+runtime.GOARCH), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(installed, "bin", runtime.GOOS+"_"+runtime.GOARCH, "demo"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1794,7 +1800,7 @@ func TestRunCommandBuildsAndRunsService(t *testing.T) {
 	if !strings.Contains(stderr, "go build -o") {
 		t.Fatalf("run stderr missing build step: %q", stderr)
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".op", "build", "bin", "demo")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, ".op", "build", "demo.holon", "bin", runtime.GOOS+"_"+runtime.GOARCH, "demo")); err != nil {
 		t.Fatalf("built artifact missing after run: %v", err)
 	}
 }
@@ -1861,7 +1867,7 @@ func TestRunCommandSkipsBuildWhenArtifactAlreadyExists(t *testing.T) {
 
 	dir := filepath.Join(root, "demo")
 	writeRunServiceFixture(t, dir, "demo")
-	buildRunBinary(t, dir, filepath.Join(dir, ".op", "build", "bin", "demo"), "./cmd/demo")
+	buildRunBinary(t, dir, filepath.Join(dir, ".op", "build", "demo.holon", "bin", runtime.GOOS+"_"+runtime.GOARCH, "demo"), "./cmd/demo")
 	if err := os.Remove(filepath.Join(dir, "go.mod")); err != nil {
 		t.Fatal(err)
 	}

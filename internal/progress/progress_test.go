@@ -3,6 +3,7 @@ package progress
 import (
 	"bytes"
 	"errors"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -62,10 +63,11 @@ func TestPrinterChildIndentsAndSharesTimer(t *testing.T) {
 	}
 
 	now = now.Add(1 * time.Second)
-	child.Step("go build -o .op/build/bin/child ./cmd/child")
+	arch := runtime.GOOS + "_" + runtime.GOARCH
+	child.Step("go build -o .op/build/child.holon/bin/" + arch + "/child ./cmd/child")
 
 	got := buf.String()
-	if !strings.Contains(got, "  00:00:01 go build -o .op/build/bin/child ./cmd/child\n") {
+	if !strings.Contains(got, "  00:00:01 go build -o .op/build/child.holon/bin/"+arch+"/child ./cmd/child\n") {
 		t.Fatalf("child output missing indentation: %q", got)
 	}
 }

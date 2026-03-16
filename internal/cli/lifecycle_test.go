@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -9,6 +10,7 @@ import (
 )
 
 func TestFormatLifecycleReportTextRecursesIntoChildren(t *testing.T) {
+	arch := runtime.GOOS + "_" + runtime.GOARCH
 	report := holons.Report{
 		Operation:   "build",
 		Holon:       "parent",
@@ -28,8 +30,8 @@ func TestFormatLifecycleReportTextRecursesIntoChildren(t *testing.T) {
 				Kind:        "native",
 				BuildTarget: "linux",
 				BuildMode:   "release",
-				Artifact:    "parent/child/.op/build/bin/child",
-				Commands:    []string{"go build -o .op/build/bin/child ./cmd/child"},
+				Artifact:    "parent/child/.op/build/child.holon",
+				Commands:    []string{"go build -o .op/build/child.holon/bin/" + arch + "/child ./cmd/child"},
 				Notes:       []string{"dry run — no commands executed"},
 			},
 		},
@@ -39,7 +41,7 @@ func TestFormatLifecycleReportTextRecursesIntoChildren(t *testing.T) {
 	if !strings.Contains(out, "Children:\n  Operation: build\n  Holon: child") {
 		t.Fatalf("expected recursive child block, got:\n%s", out)
 	}
-	if !strings.Contains(out, "  Commands:\n  - go build -o .op/build/bin/child ./cmd/child") {
+	if !strings.Contains(out, "  Commands:\n  - go build -o .op/build/child.holon/bin/"+arch+"/child ./cmd/child") {
 		t.Fatalf("expected child commands, got:\n%s", out)
 	}
 }

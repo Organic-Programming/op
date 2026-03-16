@@ -168,9 +168,9 @@ func UninstallWithOptions(ref string, opts InstallOptions) (InstallReport, error
 	}
 	if installedPath := lookupInstalledArtifactInOPBIN(binaryName); installedPath != "" {
 		report.Installed = installedPath
-		report.Binary = filepath.Base(installedPath)
+		report.Binary = installedBinaryName(target, installedPath)
 	} else {
-		report.Binary = binaryName
+		report.Binary = installedBinaryName(target, binaryName)
 		report.Installed = filepath.Join(openv.OPBIN(), binaryName)
 	}
 	installedPath := report.Installed
@@ -191,6 +191,19 @@ func UninstallWithOptions(ref string, opts InstallOptions) (InstallReport, error
 	}
 	report.Notes = append(report.Notes, "removed "+installedPath)
 	return report, nil
+}
+
+func installedBinaryName(target *Target, path string) string {
+	if target != nil && target.Manifest != nil {
+		if binary := target.Manifest.BinaryName(); binary != "" {
+			return binary
+		}
+	}
+	base := filepath.Base(strings.TrimSpace(path))
+	if isHolonPackagePath(base) {
+		return strings.TrimSuffix(base, ".holon")
+	}
+	return base
 }
 
 func baseInstallReport(operation string, target *Target, ctx BuildContext) InstallReport {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -126,10 +127,11 @@ type RecipeTarget struct {
 // RecipeStep is one step in a recipe build plan.
 // Exactly one field should be set.
 type RecipeStep struct {
-	BuildMember string          `yaml:"build_member,omitempty"`
-	Exec        *RecipeStepExec `yaml:"exec,omitempty"`
-	Copy        *RecipeStepCopy `yaml:"copy,omitempty"`
-	AssertFile  *RecipeStepFile `yaml:"assert_file,omitempty"`
+	BuildMember  string                  `yaml:"build_member,omitempty"`
+	Exec         *RecipeStepExec         `yaml:"exec,omitempty"`
+	Copy         *RecipeStepCopy         `yaml:"copy,omitempty"`
+	AssertFile   *RecipeStepFile         `yaml:"assert_file,omitempty"`
+	CopyArtifact *RecipeStepCopyArtifact `yaml:"copy_artifact,omitempty"`
 }
 
 // RecipeStepExec runs a command with an explicit argv and working directory.
@@ -147,6 +149,11 @@ type RecipeStepCopy struct {
 // RecipeStepFile verifies a manifest-relative file exists.
 type RecipeStepFile struct {
 	Path string `yaml:"path"`
+}
+
+type RecipeStepCopyArtifact struct {
+	From string `yaml:"from"`
+	To   string `yaml:"to"`
 }
 
 type Requires struct {
@@ -395,6 +402,12 @@ func manifestBuildFromResolved(resolved *identity.Resolved) BuildConfig {
 						Path: strings.TrimSpace(step.AssertFile.Path),
 					}
 				}
+				if step.CopyArtifact != nil {
+					recipeStep.CopyArtifact = &RecipeStepCopyArtifact{
+						From: strings.TrimSpace(step.CopyArtifact.From),
+						To:   strings.TrimSpace(step.CopyArtifact.To),
+					}
+				}
 				steps = append(steps, recipeStep)
 			}
 			build.Targets[strings.TrimSpace(name)] = RecipeTarget{Steps: steps}
@@ -464,9 +477,16 @@ func (m *LoadedManifest) mustResolveManifestPath(rel string) string {
 	return filepath.Join(m.Dir, filepath.FromSlash(rel))
 }
 
+func (m *LoadedManifest) HolonPackageDir() string {
+	if m == nil {
+		return ""
+	}
+	return filepath.Join(m.Dir, ".op", "build", m.Name+".holon")
+}
+
 func (m *LoadedManifest) BinaryPath() string {
 	if binary := m.BinaryName(); binary != "" {
-		return filepath.Join(m.Dir, ".op", "build", "bin", binary)
+		return filepath.Join(m.HolonPackageDir(), "bin", runtimeArchitecture(), binary)
 	}
 	return ""
 }
@@ -491,7 +511,7 @@ func (m *LoadedManifest) ArtifactPath(ctx BuildContext) string {
 	if strings.TrimSpace(m.Manifest.Artifacts.Primary) != "" {
 		return m.mustResolveManifestPath(m.Manifest.ArtifactPath())
 	}
-	return m.BinaryPath()
+	return m.HolonPackageDir()
 }
 
 // PrimaryArtifactPath returns the primary artifact path (success contract).
@@ -501,6 +521,10 @@ func (m *LoadedManifest) PrimaryArtifactPath(ctx BuildContext) string {
 
 func (m *LoadedManifest) OpRoot() string {
 	return filepath.Join(m.Dir, ".op")
+}
+
+func runtimeArchitecture() string {
+	return runtime.GOOS + "_" + runtime.GOARCH
 }
 
 func (m *LoadedManifest) CMakeBuildDir() string {
@@ -676,6 +700,17 @@ func validateRecipe(m *LoadedManifest) error {
 					return err
 				}
 			}
+			if step.CopyArtifact != nil {
+				if !memberIDs[step.CopyArtifact.From] {
+					return fmt.Errorf("%s: target %q step %d copy_artifact references unknown member %q", m.Path, targetName, i+1, step.CopyArtifact.From)
+				}
+				if memberTypes[step.CopyArtifact.From] != "holon" {
+					return fmt.Errorf("%s: target %q step %d copy_artifact %q must reference a holon member", m.Path, targetName, i+1, step.CopyArtifact.From)
+				}
+				if err := validateManifestRelativeField(m, fmt.Sprintf("build.targets[%q].steps[%d].copy_artifact.to", targetName, i+1), step.CopyArtifact.To); err != nil {
+					return err
+				}
+			}
 		}
 	}
 
@@ -832,6 +867,9 @@ func (s RecipeStep) actionCount() int {
 		count++
 	}
 	if s.AssertFile != nil {
+		count++
+	}
+	if s.CopyArtifact != nil {
 		count++
 	}
 	return count

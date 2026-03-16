@@ -104,7 +104,7 @@ func TestExecuteLifecycleBuildGoModuleFromProtoManifest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build failed: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".op", "build", "bin", "demo-proto")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, ".op", "build", "demo-proto.holon", "bin", runtimeArchitecture(), "demo-proto")); err != nil {
 		t.Fatalf("binary missing after build: %v", err)
 	}
 	if buildReport.Runner != RunnerGoModule {
@@ -152,7 +152,7 @@ func TestResolveBinaryUsesCanonicalArtifactNameForSlug(t *testing.T) {
 	chdirForHolonTest(t, root)
 
 	dir := filepath.Join(root, "organic-programming", "holons", "dummy-test")
-	if err := os.MkdirAll(filepath.Join(dir, ".op", "build", "bin"), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, ".op", "build", "dummy-test.holon", "bin", runtimeArchitecture()), 0755); err != nil {
 		t.Fatal(err)
 	}
 	id := identity.Identity{
@@ -169,7 +169,7 @@ func TestResolveBinaryUsesCanonicalArtifactNameForSlug(t *testing.T) {
 		Lang:        "go",
 	}
 	writeManifestWithIdentity(t, dir, id, "kind: native\nbuild:\n  runner: go-module\n  main: ./cmd/who\nrequires:\n  commands: [go]\n  files: [go.mod]\nartifacts:\n  binary: dummy-test\n")
-	binaryPath := filepath.Join(dir, ".op", "build", "bin", "dummy-test")
+	binaryPath := filepath.Join(dir, ".op", "build", "dummy-test.holon", "bin", runtimeArchitecture(), "dummy-test")
 	if err := os.WriteFile(binaryPath, []byte("#!/bin/sh\n"), 0755); err != nil {
 		t.Fatal(err)
 	}
@@ -219,7 +219,7 @@ func TestExecuteLifecycleBuildAndCleanGoModule(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build failed: %v", err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, ".op", "build", "bin", "demo")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, ".op", "build", "demo.holon", "bin", runtimeArchitecture(), "demo")); err != nil {
 		t.Fatalf("binary missing after build: %v", err)
 	}
 	if buildReport.Runner != RunnerGoModule {

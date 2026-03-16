@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -16,6 +17,7 @@ func TestBuildSuggestionsIncludeTestInstallRunAndDirectLaunch(t *testing.T) {
 	restore := currentGOOS
 	currentGOOS = func() string { return "linux" }
 	t.Cleanup(func() { currentGOOS = restore })
+	expectedBinary := filepath.ToSlash(filepath.Join(".op", "build", "rob-go.holon", "bin", runtime.GOOS+"_"+runtime.GOARCH, "rob-go"))
 
 	var buf bytes.Buffer
 	Print(&buf, Context{
@@ -23,7 +25,7 @@ func TestBuildSuggestionsIncludeTestInstallRunAndDirectLaunch(t *testing.T) {
 		Holon:       "rob-go",
 		Manifest:    manifest,
 		BuildTarget: "linux",
-		Artifact:    ".op/build/bin/rob-go",
+		Artifact:    ".op/build/rob-go.holon",
 	})
 
 	out := buf.String()
@@ -32,7 +34,7 @@ func TestBuildSuggestionsIncludeTestInstallRunAndDirectLaunch(t *testing.T) {
 		"op test rob-go",
 		"op install rob-go",
 		"op run rob-go:9090",
-		".op/build/bin/rob-go --help",
+		expectedBinary + " --help",
 	} {
 		if !strings.Contains(out, expected) {
 			t.Fatalf("output missing %q: %q", expected, out)
@@ -84,10 +86,10 @@ func TestTestSuggestionsDependOnArtifactPresence(t *testing.T) {
 		t.Fatalf("test suggestions missing install step: %q", out)
 	}
 
-	if err := os.MkdirAll(filepath.Join(root, ".op", "build", "bin"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(manifest.BinaryPath()), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, ".op", "build", "bin", "rob-go"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+	if err := os.WriteFile(manifest.BinaryPath(), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -117,13 +119,14 @@ func TestInstallSuggestionsUseInstalledPath(t *testing.T) {
 		Holon:       "rob-go",
 		Manifest:    manifest,
 		BuildTarget: "linux",
-		Installed:   filepath.Join(root, ".op", "bin", "rob-go"),
+		Installed:   filepath.Join(root, ".op", "bin", "rob-go.holon"),
 	})
 	out := buf.String()
 	if !strings.Contains(out, "op run rob-go:9090") {
 		t.Fatalf("install suggestions missing run command: %q", out)
 	}
-	if !strings.Contains(out, filepath.Join(root, ".op", "bin", "rob-go")+" --help") {
+	expectedInstalledBinary := filepath.Join(root, ".op", "bin", "rob-go.holon", "bin", runtime.GOOS+"_"+runtime.GOARCH, "rob-go") + " --help"
+	if !strings.Contains(out, expectedInstalledBinary) {
 		t.Fatalf("install suggestions missing direct run: %q", out)
 	}
 }
@@ -170,13 +173,13 @@ func TestPlatformAwareNoteForMismatchedBuildTarget(t *testing.T) {
 		Holon:       "rob-go",
 		Manifest:    manifest,
 		BuildTarget: "macos",
-		Artifact:    ".op/build/bin/rob-go",
+		Artifact:    ".op/build/rob-go.holon",
 	})
 	out := buf.String()
 	if !strings.Contains(out, "built for macos, current platform is linux") {
 		t.Fatalf("output missing platform mismatch note: %q", out)
 	}
-	if strings.Contains(out, ".op/build/bin/rob-go --help") {
+	if strings.Contains(out, ".op/build/rob-go.holon/bin/") {
 		t.Fatalf("output unexpectedly contains direct launch on mismatched platform: %q", out)
 	}
 }

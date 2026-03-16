@@ -59,10 +59,11 @@ type ResolvedRecipeTarget struct {
 }
 
 type ResolvedRecipeStep struct {
-	BuildMember string
-	Exec        *ResolvedRecipeExec
-	Copy        *ResolvedRecipeCopy
-	AssertFile  *ResolvedRecipeFile
+	BuildMember  string
+	Exec         *ResolvedRecipeExec
+	Copy         *ResolvedRecipeCopy
+	AssertFile   *ResolvedRecipeFile
+	CopyArtifact *ResolvedRecipeCopyArtifact
 }
 
 type ResolvedRecipeExec struct {
@@ -77,6 +78,11 @@ type ResolvedRecipeCopy struct {
 
 type ResolvedRecipeFile struct {
 	Path string
+}
+
+type ResolvedRecipeCopyArtifact struct {
+	From string
+	To   string
 }
 
 type ResolvedSkill struct {
@@ -416,6 +422,12 @@ func resolvedRecipeStepFromDynamic(step *dynamic.Message) ResolvedRecipeStep {
 	if assertFile := dynSubMessage(step, 4); assertFile != nil {
 		resolved.AssertFile = &ResolvedRecipeFile{
 			Path: dynString(assertFile, 1),
+		}
+	}
+	if copyArtifact := dynSubMessage(step, 5); copyArtifact != nil {
+		resolved.CopyArtifact = &ResolvedRecipeCopyArtifact{
+			From: dynString(copyArtifact, 1),
+			To:   dynString(copyArtifact, 2),
 		}
 	}
 	return resolved

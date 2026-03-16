@@ -150,6 +150,7 @@ func commandForInstalledArtifact(path string, target *holons.Target, listenURI s
 	if target != nil {
 		manifest = target.Manifest
 	}
+	path = holons.LaunchableArtifactPath(path, manifest)
 	if info, err := os.Stat(path); err == nil && info.IsDir() {
 		if isMacAppBundle(path) && runtime.GOOS == "darwin" {
 			return exec.Command("open", "-W", path), nil

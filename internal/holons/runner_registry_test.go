@@ -171,7 +171,7 @@ func TestDartRunnerDryRunBuildUsesManagedBinaryOutput(t *testing.T) {
 	if !strings.Contains(report.Commands[0], "dart pub get") {
 		t.Fatalf("unexpected dart pub command: %v", report.Commands)
 	}
-	if !strings.Contains(report.Commands[1], "dart compile exe bin/main.dart -o ") || !strings.Contains(report.Commands[1], filepath.Join(".op", "build", "bin")) {
+	if !strings.Contains(report.Commands[1], "dart compile exe bin/main.dart -o ") || !strings.Contains(report.Commands[1], manifest.BinaryPath()) {
 		t.Fatalf("unexpected dart compile command: %v", report.Commands)
 	}
 }

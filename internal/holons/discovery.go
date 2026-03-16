@@ -632,7 +632,7 @@ func binaryLookupNames(target *Target, requested string) []string {
 
 func lookupBinaryOnSystem(names ...string) string {
 	for _, candidate := range uniqueNonEmpty(names) {
-		if installed := lookupInstalledArtifactInOPBIN(candidate); installed != "" {
+		if installed := lookupInstalledLaunchableInOPBIN(candidate); installed != "" {
 			return installed
 		}
 		if path, lookErr := exec.LookPath(candidate); lookErr == nil {

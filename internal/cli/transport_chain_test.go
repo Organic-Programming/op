@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -85,7 +86,7 @@ func seedTransportHolon(t *testing.T, root string, seed transportHolonSeed) {
 	}
 
 	if seed.binaryName != "" {
-		binaryPath := filepath.Join(dir, ".op", "build", "bin", seed.binaryName)
+		binaryPath := filepath.Join(dir, ".op", "build", seed.dirName+".holon", "bin", runtime.GOOS+"_"+runtime.GOARCH, seed.binaryName)
 		if err := os.MkdirAll(filepath.Dir(binaryPath), 0755); err != nil {
 			t.Fatal(err)
 		}

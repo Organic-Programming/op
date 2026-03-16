@@ -183,6 +183,10 @@ func artifactExists(manifest *holons.LoadedManifest, buildTarget string) bool {
 	if manifest == nil {
 		return false
 	}
+	if manifest.Manifest.Kind == holons.KindNative || manifest.Manifest.Kind == holons.KindWrapper {
+		info, err := os.Stat(manifest.BinaryPath())
+		return err == nil && !info.IsDir()
+	}
 	ctx := holons.BuildContext{Target: buildTarget}
 	if ctx.Target == "" {
 		ctx.Target = runtimeTarget()
@@ -218,11 +222,12 @@ func launchSuggestion(manifest *holons.LoadedManifest, buildTarget, explicitPath
 	if path == "" {
 		switch phase {
 		case "install":
-			path = filepath.Join(openv.OPBIN(), manifest.BinaryName())
+			path = filepath.Join(openv.OPBIN(), manifest.Name+".holon")
 		default:
 			path = relativeToCWD(manifest.BinaryPath())
 		}
 	}
+	path = holons.LaunchableArtifactPath(path, manifest)
 	if path == "" {
 		return "", ""
 	}

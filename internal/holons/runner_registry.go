@@ -533,7 +533,7 @@ func (dartRunner) build(manifest *LoadedManifest, ctx BuildContext, report *Repo
 	if err != nil {
 		return err
 	}
-	outputPath := manifest.ArtifactPath(ctx)
+	outputPath := manifest.BinaryPath()
 	if strings.TrimSpace(outputPath) == "" {
 		return fmt.Errorf("dart runner requires an artifact output path")
 	}
@@ -1174,7 +1174,7 @@ func (qtCMakeRunner) build(manifest *LoadedManifest, ctx BuildContext, report *R
 		return err
 	}
 	config := cmakeBuildConfig(ctx.Mode)
-	binDir := filepath.Join(manifest.Dir, ".op", "build", "bin")
+	binDir := filepath.Dir(manifest.BinaryPath())
 	configureArgs := []string{
 		"cmake",
 		"-S", ".",

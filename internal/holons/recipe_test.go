@@ -250,6 +250,9 @@ build:
         - copy:
             from: app/source.txt
             to: app/copied.txt
+        - copy_artifact:
+            from: child
+            to: app/embedded/child.holon
         - assert_file:
             path: app/output.txt
 artifacts:
@@ -294,6 +297,7 @@ artifacts:
         steps: { build_member: "child" }
         steps: { exec: { cwd: "app" argv: ["echo", "hello"] } }
         steps: { copy: { from: "app/source.txt" to: "app/copied.txt" } }
+        steps: { copy_artifact: { from: "child" to: "app/embedded/child.holon" } }
         steps: { assert_file: { path: "app/output.txt" } }
       }
     }
@@ -546,6 +550,39 @@ artifacts:
 	}
 }
 
+func TestRecipeValidationRejectsUnknownCopyArtifactMemberRef(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	writeRecipeManifest(t, root, `schema: holon/v0
+kind: composite
+build:
+  runner: recipe
+  members:
+    - id: app
+      path: app
+      type: component
+  targets:
+    macos:
+      steps:
+        - copy_artifact:
+            from: missing
+            to: app/embedded/missing.holon
+artifacts:
+  primary: app/output.txt
+`)
+
+	_, err := LoadManifest(root)
+	if err == nil {
+		t.Fatal("expected error for unknown copy_artifact member ref")
+	}
+	if !strings.Contains(err.Error(), "copy_artifact references unknown member") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestRecipeValidationRejectsMultiActionStep(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "child"), 0755); err != nil {
@@ -676,6 +713,87 @@ artifacts:
 		t.Fatal("expected component build_member error")
 	}
 	if !strings.Contains(err.Error(), "must reference a holon member") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRecipeValidationRejectsCopyArtifactForComponent(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "component"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	writeRecipeManifest(t, root, `schema: holon/v0
+kind: composite
+build:
+  runner: recipe
+  members:
+    - id: component
+      path: component
+      type: component
+  targets:
+    macos:
+      steps:
+        - copy_artifact:
+            from: component
+            to: component/output.holon
+artifacts:
+  primary: component/output.txt
+`)
+
+	_, err := LoadManifest(root)
+	if err == nil {
+		t.Fatal("expected component copy_artifact error")
+	}
+	if !strings.Contains(err.Error(), "copy_artifact") || !strings.Contains(err.Error(), "must reference a holon member") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRecipeValidationRejectsCopyArtifactInvalidDestination(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "child"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "child", ManifestFileName), []byte(`schema: holon/v0
+kind: native
+build:
+  runner: go-module
+artifacts:
+  binary: child
+`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(root, "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	writeRecipeManifest(t, root, `schema: holon/v0
+kind: composite
+build:
+  runner: recipe
+  members:
+    - id: child
+      path: child
+      type: holon
+    - id: app
+      path: app
+      type: component
+  targets:
+    macos:
+      steps:
+        - copy_artifact:
+            from: child
+            to: /tmp/child.holon
+artifacts:
+  primary: app/output.txt
+`)
+
+	_, err := LoadManifest(root)
+	if err == nil {
+		t.Fatal("expected invalid copy_artifact destination error")
+	}
+	if !strings.Contains(err.Error(), "copy_artifact.to") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -902,6 +1020,80 @@ artifacts:
 	}
 	if len(report.Commands) == 0 || !strings.Contains(report.Commands[0], "copy") {
 		t.Fatalf("expected copy command, got %v", report.Commands)
+	}
+}
+
+func TestRecipeRunnerCopyArtifactStep(t *testing.T) {
+	root := t.TempDir()
+	chdirForHolonTest(t, root)
+
+	childDir := filepath.Join(root, "child")
+	if err := os.MkdirAll(childDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeRecipeManifest(t, childDir, `schema: holon/v0
+kind: native
+build:
+  runner: go-module
+artifacts:
+  binary: child
+`)
+
+	childManifest, err := LoadManifest(childDir)
+	if err != nil {
+		t.Fatalf("LoadManifest(child) failed: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Dir(childManifest.BinaryPath()), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(childManifest.BinaryPath(), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := writeHolonJSON(childManifest); err != nil {
+		t.Fatalf("writeHolonJSON(child) failed: %v", err)
+	}
+
+	if err := os.MkdirAll(filepath.Join(root, "app"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeRecipeManifest(t, root, `schema: holon/v0
+kind: composite
+build:
+  runner: recipe
+  members:
+    - id: child
+      path: child
+      type: holon
+    - id: app
+      path: app
+      type: component
+  targets:
+    `+canonicalRuntimeTarget()+`:
+      steps:
+        - copy_artifact:
+            from: child
+            to: app/Holons/child.holon
+        - assert_file:
+            path: app/Holons/child.holon/.holon.json
+artifacts:
+  primary: app/Holons/child.holon/.holon.json
+`)
+
+	report, err := ExecuteLifecycle(OperationBuild, root)
+	if err != nil {
+		t.Fatalf("build failed: %v", err)
+	}
+
+	dstBinary := filepath.Join(root, "app", "Holons", "child.holon", "bin", runtimeArchitecture(), "child")
+	info, err := os.Stat(dstBinary)
+	if err != nil {
+		t.Fatalf("copied binary missing: %v", err)
+	}
+	if info.Mode()&0o111 == 0 {
+		t.Fatalf("copied binary mode = %v, want executable", info.Mode())
+	}
+	if !hasEntryContaining(report.Commands, "copy_artifact child -> app/Holons/child.holon") {
+		t.Fatalf("expected copy_artifact command, got %v", report.Commands)
 	}
 }
 
