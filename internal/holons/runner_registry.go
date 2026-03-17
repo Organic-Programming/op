@@ -1,6 +1,7 @@
 package holons
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -227,6 +228,12 @@ func pythonBuildArgs(manifest *LoadedManifest) ([]string, bool, error) {
 }
 
 func pythonEntrypoint(manifest *LoadedManifest) (string, error) {
+	// Prefer the explicit entrypoint declared in build.main.
+	if rel := strings.TrimPrefix(strings.TrimSpace(manifest.Manifest.Build.Main), "./"); rel != "" {
+		if fileExists(filepath.Join(manifest.Dir, filepath.FromSlash(rel))) {
+			return rel, nil
+		}
+	}
 	for _, rel := range []string{"bin/main.py", "main.py", "app/main.py"} {
 		if fileExists(filepath.Join(manifest.Dir, filepath.FromSlash(rel))) {
 			return rel, nil
@@ -250,6 +257,12 @@ func pythonTestArgs(manifest *LoadedManifest) ([]string, error) {
 }
 
 func dartEntrypoint(manifest *LoadedManifest) (string, error) {
+	// Prefer the explicit entrypoint declared in build.main.
+	if rel := strings.TrimPrefix(strings.TrimSpace(manifest.Manifest.Build.Main), "./"); rel != "" {
+		if fileExists(filepath.Join(manifest.Dir, filepath.FromSlash(rel))) {
+			return rel, nil
+		}
+	}
 	for _, rel := range []string{"bin/main.dart", "lib/main.dart"} {
 		if fileExists(filepath.Join(manifest.Dir, filepath.FromSlash(rel))) {
 			return rel, nil
@@ -269,6 +282,12 @@ func rubyTestArgs(manifest *LoadedManifest) ([]string, error) {
 }
 
 func rubyEntrypoint(manifest *LoadedManifest) (string, error) {
+	// Prefer the explicit entrypoint declared in build.main.
+	if rel := strings.TrimPrefix(strings.TrimSpace(manifest.Manifest.Build.Main), "./"); rel != "" {
+		if fileExists(filepath.Join(manifest.Dir, filepath.FromSlash(rel))) {
+			return rel, nil
+		}
+	}
 	for _, rel := range []string{"bin/main.rb", "main.rb", "app/main.rb"} {
 		if fileExists(filepath.Join(manifest.Dir, filepath.FromSlash(rel))) {
 			return rel, nil
@@ -887,9 +906,10 @@ func (npmRunner) check(manifest *LoadedManifest, _ BuildContext) error {
 }
 
 func (npmRunner) build(manifest *LoadedManifest, ctx BuildContext, report *Report) error {
-	commands := [][]string{
-		{"npm", "ci"},
-		{"npm", "run", "build"},
+	var commands [][]string
+	commands = append(commands, []string{"npm", "ci"})
+	if npmHasBuildScript(manifest) {
+		commands = append(commands, []string{"npm", "run", "build"})
 	}
 	for _, args := range commands {
 		report.Commands = append(report.Commands, commandString(args))
@@ -957,12 +977,33 @@ func (npmRunner) clean(manifest *LoadedManifest, report *Report) error {
 
 func npmArtifactCandidates(manifest *LoadedManifest) []string {
 	name := manifest.BinaryName()
-	return []string{
+	candidates := []string{
 		filepath.Join(manifest.Dir, "dist", name),
 		filepath.Join(manifest.Dir, "dist", name+".js"),
 		filepath.Join(manifest.Dir, "build", name),
 		filepath.Join(manifest.Dir, "build", name+".js"),
 	}
+	// Allow interpreted holons (no build step) to declare their entry point via build.main.
+	if main := strings.TrimSpace(manifest.Manifest.Build.Main); main != "" {
+		candidates = append(candidates, filepath.Join(manifest.Dir, filepath.FromSlash(main)))
+	}
+	return candidates
+}
+
+// npmHasBuildScript reports whether the holon's package.json declares a "build" script.
+func npmHasBuildScript(manifest *LoadedManifest) bool {
+	data, err := os.ReadFile(filepath.Join(manifest.Dir, "package.json"))
+	if err != nil {
+		return false
+	}
+	var pkg struct {
+		Scripts map[string]string `json:"scripts"`
+	}
+	if err := json.Unmarshal(data, &pkg); err != nil {
+		return false
+	}
+	_, ok := pkg.Scripts["build"]
+	return ok
 }
 
 type gradleRunner struct{}

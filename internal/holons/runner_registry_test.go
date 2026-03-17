@@ -421,7 +421,7 @@ func TestFlutterRunnerDryRunBuild(t *testing.T) {
 
 func TestNPMRunnerDryRunBuild(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte("{\"name\":\"demo\"}\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "package.json"), []byte("{\"name\":\"demo\",\"scripts\":{\"build\":\"echo build\"}}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	writeRunnerManifest(t, root, "schema: holon/v0\nkind: native\nbuild:\n  runner: npm\nartifacts:\n  binary: npm-demo\n")

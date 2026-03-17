@@ -581,10 +581,6 @@ func validateManifest(m *LoadedManifest) error {
 		}
 	}
 
-	if m.Manifest.Build.Runner != RunnerGoModule && strings.TrimSpace(m.Manifest.Build.Main) != "" {
-		return fmt.Errorf("%s: build.main is only valid for %q", m.Path, RunnerGoModule)
-	}
-
 	if m.Manifest.Kind != KindWrapper && len(m.Manifest.Delegates.Commands) > 0 {
 		return fmt.Errorf("%s: delegates.commands is only valid for wrapper holons", m.Path)
 	}

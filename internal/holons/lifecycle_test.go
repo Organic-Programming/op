@@ -91,6 +91,28 @@ func TestLoadManifestFromProtoForGoModule(t *testing.T) {
 	}
 }
 
+func TestLoadManifestFromProtoForCargo(t *testing.T) {
+	root := t.TempDir()
+	dir := writeProtoCargoHolonFixture(t, root, "demo-cargo")
+
+	manifest, err := LoadManifest(dir)
+	if err != nil {
+		t.Fatalf("LoadManifest returned error: %v", err)
+	}
+	if got := filepath.Base(manifest.Path); got != identity.ProtoManifestFileName {
+		t.Fatalf("manifest path basename = %q, want %q", got, identity.ProtoManifestFileName)
+	}
+	if got := manifest.Manifest.Build.Runner; got != RunnerCargo {
+		t.Fatalf("build runner = %q, want %q", got, RunnerCargo)
+	}
+	if got := manifest.Manifest.Build.Main; got != "" {
+		t.Fatalf("build main = %q, want empty", got)
+	}
+	if got := manifest.Manifest.Artifacts.Binary; got != "demo-cargo" {
+		t.Fatalf("binary = %q, want %q", got, "demo-cargo")
+	}
+}
+
 func TestExecuteLifecycleBuildGoModuleFromProtoManifest(t *testing.T) {
 	if _, err := execLookPath("go"); err != nil {
 		t.Skip("go command not available")
@@ -320,6 +342,56 @@ option (holons.v1.manifest) = {
   }
 };
 `, name, name, name)
+	if err := os.WriteFile(filepath.Join(dir, "api", "v1", "holon.proto"), []byte(proto), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	return dir
+}
+
+func writeProtoCargoHolonFixture(t *testing.T, root, name string) string {
+	t.Helper()
+
+	dir := filepath.Join(root, name)
+	if err := os.MkdirAll(filepath.Join(dir, "api", "v1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "Cargo.toml"), []byte("[package]\nname = \""+name+"\"\nversion = \"0.1.0\"\nedition = \"2021\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeSharedHolonManifestProto(t, root)
+
+	proto := fmt.Sprintf(`syntax = "proto3";
+
+package test.v1;
+
+import "holons/v1/manifest.proto";
+
+option (holons.v1.manifest) = {
+  identity: {
+    schema: "holon/v1"
+    uuid: "%s-uuid"
+    given_name: "Demo"
+    family_name: "Cargo"
+    motto: "Proto-backed cargo test holon."
+    composer: "test"
+    status: "draft"
+    born: "2026-03-16"
+  }
+  kind: "native"
+  lang: "rust"
+  build: {
+    runner: "cargo"
+  }
+  requires: {
+    commands: ["cargo"]
+    files: ["Cargo.toml"]
+  }
+  artifacts: {
+    binary: "%s"
+  }
+};
+`, name, name)
 	if err := os.WriteFile(filepath.Join(dir, "api", "v1", "holon.proto"), []byte(proto), 0o644); err != nil {
 		t.Fatal(err)
 	}
