@@ -1,6 +1,7 @@
 package holons
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,6 +9,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"text/template"
 
 	"github.com/organic-programming/grace-op/internal/identity"
 	"github.com/organic-programming/grace-op/internal/progress"
@@ -121,6 +123,13 @@ func ExecuteLifecycle(op Operation, ref string, opts ...BuildOptions) (Report, e
 		report.Notes = append(report.Notes, "manifest and prerequisites validated")
 		return report, nil
 	case OperationBuild:
+		restoreFn, tmplErr := processTemplates(target.Manifest, reporter)
+		if tmplErr != nil {
+			err = fmt.Errorf("template processing: %w", tmplErr)
+			break
+		}
+		defer restoreFn()
+
 		err = r.build(target.Manifest, ctx, &report)
 		if err == nil && !ctx.DryRun && !isAggregateBuildTarget(ctx.Target) {
 			err = writeHolonJSON(target.Manifest)
@@ -247,6 +256,95 @@ func preflight(manifest *LoadedManifest, ctx BuildContext) error {
 	return nil
 }
 
+// templateData is the data available to Go template expressions in build templates.
+type templateData struct {
+	Version    string
+	UUID       string
+	GivenName  string
+	FamilyName string
+	Motto      string
+	Composer   string
+	Status     string
+	Born       string
+}
+
+// processTemplates resolves Go template expressions in declared build template files.
+// Returns a restore function that writes back the original bytes (always call via defer).
+func processTemplates(manifest *LoadedManifest, reporter progress.Reporter) (restore func(), err error) {
+	templates := manifest.Manifest.Build.Templates
+	if len(templates) == 0 {
+		return func() {}, nil
+	}
+
+	data := templateData{
+		Version:    manifest.Manifest.Version,
+		UUID:       manifest.Manifest.UUID,
+		GivenName:  manifest.Manifest.GivenName,
+		FamilyName: manifest.Manifest.FamilyName,
+		Motto:      manifest.Manifest.Motto,
+		Composer:   manifest.Manifest.Composer,
+		Status:     manifest.Manifest.Status,
+		Born:       manifest.Manifest.Born,
+	}
+
+	// Read originals into memory and write resolved content.
+	type savedFile struct {
+		path     string
+		original []byte
+		mode     os.FileMode
+	}
+	var saved []savedFile
+
+	restore = func() {
+		for _, sf := range saved {
+			_ = os.WriteFile(sf.path, sf.original, sf.mode)
+		}
+	}
+
+	for _, relPath := range templates {
+		absPath, resolveErr := manifest.ResolveManifestPath(relPath)
+		if resolveErr != nil {
+			restore()
+			return func() {}, fmt.Errorf("template %q: %w", relPath, resolveErr)
+		}
+
+		info, statErr := os.Stat(absPath)
+		if statErr != nil {
+			restore()
+			return func() {}, fmt.Errorf("template %q not found: %w", relPath, statErr)
+		}
+
+		original, readErr := os.ReadFile(absPath)
+		if readErr != nil {
+			restore()
+			return func() {}, fmt.Errorf("template %q: %w", relPath, readErr)
+		}
+
+		saved = append(saved, savedFile{path: absPath, original: original, mode: info.Mode()})
+
+		tmpl, parseErr := template.New(relPath).Parse(string(original))
+		if parseErr != nil {
+			restore()
+			return func() {}, fmt.Errorf("template %q parse: %w", relPath, parseErr)
+		}
+
+		var buf bytes.Buffer
+		if execErr := tmpl.Execute(&buf, data); execErr != nil {
+			restore()
+			return func() {}, fmt.Errorf("template %q execute: %w", relPath, execErr)
+		}
+
+		if writeErr := os.WriteFile(absPath, buf.Bytes(), info.Mode()); writeErr != nil {
+			restore()
+			return func() {}, fmt.Errorf("template %q write: %w", relPath, writeErr)
+		}
+
+		reporter.Step(fmt.Sprintf("template: %s", relPath))
+	}
+
+	return restore, nil
+}
+
 func requiredCommands(manifest *LoadedManifest) []string {
 	commands := append([]string{}, manifest.Manifest.Requires.Commands...)
 	if manifest.Manifest.Kind == KindWrapper {
@@ -338,14 +436,7 @@ func (goModuleRunner) build(manifest *LoadedManifest, ctx BuildContext, report *
 	}
 
 	binaryPath := manifest.BinaryPath()
-	args := []string{"go", "build"}
-
-	// Inject the holon version from the proto into the binary via -ldflags.
-	if version := strings.TrimSpace(manifest.Manifest.Version); version != "" {
-		args = append(args, "-ldflags", "-X main.version="+version)
-	}
-
-	args = append(args, "-o", binaryPath, manifest.GoMainPackage())
+	args := []string{"go", "build", "-o", binaryPath, manifest.GoMainPackage()}
 	report.Commands = append(report.Commands, commandString(args))
 	ctx.Progress.Step(commandString(args))
 	if ctx.DryRun {

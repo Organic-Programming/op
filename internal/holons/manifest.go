@@ -93,11 +93,12 @@ type SequenceParam struct {
 }
 
 type BuildConfig struct {
-	Runner   string
-	Main     string
-	Defaults *RecipeDefaults
-	Members  []RecipeMember
-	Targets  map[string]RecipeTarget
+	Runner    string
+	Main      string
+	Defaults  *RecipeDefaults
+	Members   []RecipeMember
+	Targets   map[string]RecipeTarget
+	Templates []string
 }
 
 // RecipeDefaults provides default target and mode for recipe builds.
@@ -326,8 +327,9 @@ func manifestFromResolved(resolved *identity.Resolved) Manifest {
 
 func manifestBuildFromResolved(resolved *identity.Resolved) BuildConfig {
 	build := BuildConfig{
-		Runner: resolved.BuildRunner,
-		Main:   resolved.BuildMain,
+		Runner:    resolved.BuildRunner,
+		Main:      resolved.BuildMain,
+		Templates: resolved.BuildTemplates,
 	}
 
 	if resolved.BuildDefaults != nil {

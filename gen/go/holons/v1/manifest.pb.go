@@ -180,6 +180,8 @@ type HolonManifest_Identity struct {
 	Composer      string                 `protobuf:"bytes,6,opt,name=composer,proto3" json:"composer,omitempty"`                       // who designed this holon (human or agent)
 	Status        string                 `protobuf:"bytes,8,opt,name=status,proto3" json:"status,omitempty"`                           // draft | stable | deprecated | dead
 	Born          string                 `protobuf:"bytes,9,opt,name=born,proto3" json:"born,omitempty"`                               // ISO 8601 date of creation (YYYY-MM-DD)
+	Version       string                 `protobuf:"bytes,10,opt,name=version,proto3" json:"version,omitempty"`                        // semver, e.g. "0.4.1" — no "v" prefix
+	Aliases       []string               `protobuf:"bytes,11,rep,name=aliases,proto3" json:"aliases,omitempty"`                        // short names for slug resolution (e.g. "op", "rgo")
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -268,6 +270,20 @@ func (x *HolonManifest_Identity) GetBorn() string {
 		return x.Born
 	}
 	return ""
+}
+
+func (x *HolonManifest_Identity) GetVersion() string {
+	if x != nil {
+		return x.Version
+	}
+	return ""
+}
+
+func (x *HolonManifest_Identity) GetAliases() []string {
+	if x != nil {
+		return x.Aliases
+	}
+	return nil
 }
 
 type HolonManifest_Skill struct {
@@ -477,9 +493,12 @@ type HolonManifest_Build struct {
 	Runner string `protobuf:"bytes,1,opt,name=runner,proto3" json:"runner,omitempty"`
 	Main   string `protobuf:"bytes,2,opt,name=main,proto3" json:"main,omitempty"` // entry point (go-module: "./cmd")
 	// Recipe-mode fields (runner == "recipe")
-	Defaults      *HolonManifest_Build_Defaults          `protobuf:"bytes,3,opt,name=defaults,proto3" json:"defaults,omitempty"`
-	Members       []*HolonManifest_Build_Member          `protobuf:"bytes,4,rep,name=members,proto3" json:"members,omitempty"`
-	Targets       map[string]*HolonManifest_Build_Target `protobuf:"bytes,5,rep,name=targets,proto3" json:"targets,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	Defaults *HolonManifest_Build_Defaults          `protobuf:"bytes,3,opt,name=defaults,proto3" json:"defaults,omitempty"`
+	Members  []*HolonManifest_Build_Member          `protobuf:"bytes,4,rep,name=members,proto3" json:"members,omitempty"`
+	Targets  map[string]*HolonManifest_Build_Target `protobuf:"bytes,5,rep,name=targets,proto3" json:"targets,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
+	// Source files containing Go template expressions (e.g. {{ .Version }}).
+	// Resolved with identity data before the language build, restored after.
+	Templates     []string `protobuf:"bytes,6,rep,name=templates,proto3" json:"templates,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -545,6 +564,13 @@ func (x *HolonManifest_Build) GetMembers() []*HolonManifest_Build_Member {
 func (x *HolonManifest_Build) GetTargets() map[string]*HolonManifest_Build_Target {
 	if x != nil {
 		return x.Targets
+	}
+	return nil
+}
+
+func (x *HolonManifest_Build) GetTemplates() []string {
+	if x != nil {
+		return x.Templates
 	}
 	return nil
 }
@@ -1304,7 +1330,7 @@ var File_holons_v1_manifest_proto protoreflect.FileDescriptor
 
 const file_holons_v1_manifest_proto_rawDesc = "" +
 	"\n" +
-	"\x18holons/v1/manifest.proto\x12\tholons.v1\x1a google/protobuf/descriptor.proto\"\xde\x15\n" +
+	"\x18holons/v1/manifest.proto\x12\tholons.v1\x1a google/protobuf/descriptor.proto\"\xb0\x16\n" +
 	"\rHolonManifest\x12=\n" +
 	"\bidentity\x18\x01 \x01(\v2!.holons.v1.HolonManifest.IdentityR\bidentity\x12 \n" +
 	"\vdescription\x18\x03 \x01(\tR\vdescription\x12\x12\n" +
@@ -1319,7 +1345,7 @@ const file_holons_v1_manifest_proto_rawDesc = "" +
 	"\brequires\x18\v \x01(\v2!.holons.v1.HolonManifest.RequiresR\brequires\x12@\n" +
 	"\tartifacts\x18\r \x01(\v2\".holons.v1.HolonManifest.ArtifactsR\tartifacts\x12?\n" +
 	"\tsequences\x18\x0e \x03(\v2!.holons.v1.HolonManifest.SequenceR\tsequences\x12\x14\n" +
-	"\x05guide\x18\x0f \x01(\tR\x05guide\x1a\xda\x01\n" +
+	"\x05guide\x18\x0f \x01(\tR\x05guide\x1a\x8e\x02\n" +
 	"\bIdentity\x12\x16\n" +
 	"\x06schema\x18\x01 \x01(\tR\x06schema\x12\x12\n" +
 	"\x04uuid\x18\x02 \x01(\tR\x04uuid\x12\x1d\n" +
@@ -1330,7 +1356,10 @@ const file_holons_v1_manifest_proto_rawDesc = "" +
 	"\x05motto\x18\x05 \x01(\tR\x05motto\x12\x1a\n" +
 	"\bcomposer\x18\x06 \x01(\tR\bcomposer\x12\x16\n" +
 	"\x06status\x18\b \x01(\tR\x06status\x12\x12\n" +
-	"\x04born\x18\t \x01(\tR\x04bornJ\x04\b\a\x10\b\x1ag\n" +
+	"\x04born\x18\t \x01(\tR\x04born\x12\x18\n" +
+	"\aversion\x18\n" +
+	" \x01(\tR\aversion\x12\x18\n" +
+	"\aaliases\x18\v \x03(\tR\aaliasesJ\x04\b\a\x10\b\x1ag\n" +
 	"\x05Skill\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12 \n" +
 	"\vdescription\x18\x02 \x01(\tR\vdescription\x12\x12\n" +
@@ -1349,13 +1378,14 @@ const file_holons_v1_manifest_proto_rawDesc = "" +
 	"\bContract\x12\x14\n" +
 	"\x05proto\x18\x01 \x01(\tR\x05proto\x12\x18\n" +
 	"\aservice\x18\x02 \x01(\tR\aservice\x12\x12\n" +
-	"\x04rpcs\x18\x03 \x03(\tR\x04rpcs\x1a\x9c\x04\n" +
+	"\x04rpcs\x18\x03 \x03(\tR\x04rpcs\x1a\xba\x04\n" +
 	"\x05Build\x12\x16\n" +
 	"\x06runner\x18\x01 \x01(\tR\x06runner\x12\x12\n" +
 	"\x04main\x18\x02 \x01(\tR\x04main\x12C\n" +
 	"\bdefaults\x18\x03 \x01(\v2'.holons.v1.HolonManifest.Build.DefaultsR\bdefaults\x12?\n" +
 	"\amembers\x18\x04 \x03(\v2%.holons.v1.HolonManifest.Build.MemberR\amembers\x12E\n" +
-	"\atargets\x18\x05 \x03(\v2+.holons.v1.HolonManifest.Build.TargetsEntryR\atargets\x1aa\n" +
+	"\atargets\x18\x05 \x03(\v2+.holons.v1.HolonManifest.Build.TargetsEntryR\atargets\x12\x1c\n" +
+	"\ttemplates\x18\x06 \x03(\tR\ttemplates\x1aa\n" +
 	"\fTargetsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12;\n" +
 	"\x05value\x18\x02 \x01(\v2%.holons.v1.HolonManifest.Build.TargetR\x05value:\x028\x01\x1a6\n" +

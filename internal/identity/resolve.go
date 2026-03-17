@@ -38,6 +38,7 @@ type Resolved struct {
 	BuildDefaults    *ResolvedRecipeDefaults
 	BuildMembers     []ResolvedRecipeMember
 	BuildTargets     map[string]ResolvedRecipeTarget
+	BuildTemplates   []string
 	MemberPaths      []string
 	ArtifactBinary   string
 	PrimaryArtifact  string
@@ -321,6 +322,7 @@ func resolvedFromDynamic(manifest *dynamic.Message) *Resolved {
 				resolved.BuildTargets[key] = resolvedRecipeTargetFromDynamic(target)
 			}
 		}
+		resolved.BuildTemplates = dynStringSlice(build, 6)
 	}
 
 	if requires := dynSubMessage(manifest, 11); requires != nil {

@@ -4620,10 +4620,10 @@ const file_api_v1_holon_proto_rawDesc = "" +
 	"\aModList\x12\x15.op.v1.ModListRequest\x1a\x16.op.v1.ModListResponse\x12;\n" +
 	"\bModGraph\x12\x16.op.v1.ModGraphRequest\x1a\x17.op.v1.ModGraphResponse\x122\n" +
 	"\x05Tools\x12\x13.op.v1.ToolsRequest\x1a\x14.op.v1.ToolsResponse\x12,\n" +
-	"\x03Env\x12\x11.op.v1.EnvRequest\x1a\x12.op.v1.EnvResponseB\xa1\x14\x82\xb5\x18\xe1\x13\n" +
-	"s\n" +
+	"\x03Env\x12\x11.op.v1.EnvRequest\x1a\x12.op.v1.EnvResponseB\xad\x14\x82\xb5\x18\xed\x13\n" +
+	"\x7f\n" +
 	"\bholon/v1\x12$28f22ab5-c62d-41f8-9ada-e34333060ff9\x1a\x05Grace\"\x02OP*\x19One command, every holon.2\bB. ALTERB\x05draftJ\n" +
-	"2026-02-12\x1a\xa5\x02OP is the unified entry point to the Organic Programming ecosystem. It discovers holons — locally or over the network — and dispatches commands to them through a single interface. The actant installs one binary and gets access to every holon. OP does not implement domain logic. It routes.\"\x02go*\x84\x03\n" +
+	"2026-02-12R\x060.5.11Z\x02op\x1a\xa5\x02OP is the unified entry point to the Organic Programming ecosystem. It discovers holons — locally or over the network — and dispatches commands to them through a single interface. The actant installs one binary and gets access to every holon. OP does not implement domain logic. It routes.\"\x02go*\x84\x03\n" +
 	"\x12discover-and-build\x12=Discover a holon, inspect its contract, and build it locally.\x1aQUser wants to find a holon in the workspace and turn it into a runnable artifact.\"7Discover local holons with `op list .` or `op discover`\".Inspect the contract with `op inspect <holon>`\".Validate prerequisites with `op check <holon>`\"CBuild and install with `op build <holon>` then `op install <holon>`*\xc0\x03\n" +
 	"\x0efull-lifecycle\x12@Drive a holon through validation, build, test, run, and cleanup.\x1aLUser wants the complete Organic Programming lifecycle for a holon or recipe.\"9Validate manifest and environment with `op check <holon>`\"IBuild and test the artifact with `op build <holon>` and `op test <holon>`\"BLaunch or dispatch with `op run <holon>` or `op <holon> <command>`\"TClean and uninstall when finished with `op clean <holon>` and `op uninstall <holon>`*\xcb\x02\n" +
 	"\x10introspect-holon\x12;Inspect a holon's RPC contract, fields, and skills offline.\x1a:User wants to understand a holon's API without running it.\"6Run `op inspect <holon>` for human-readable proto docs\";Use `op inspect <holon> --json` for machine-readable output\"IFallback to `op inspect <host:port>` for a running holon via Describe RPC*\xa4\x02\n" +
