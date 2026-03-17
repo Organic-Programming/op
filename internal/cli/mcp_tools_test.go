@@ -11,6 +11,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/organic-programming/grace-op/internal/identity"
 )
 
 func TestMCPCommandToolsList(t *testing.T) {
@@ -356,6 +358,17 @@ func seedEchoHolon(t *testing.T, root string) {
 	targetDir := filepath.Join(root, "holons", "echo-server")
 	sourceDir := cliTestSupportDir(t, "echoholon")
 	copyDir(t, sourceDir, targetDir)
+	legacyManifestPath := filepath.Join(targetDir, "holon."+"yaml")
+	manifestData, err := os.ReadFile(legacyManifestPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeCLIManifestFile(filepath.Join(targetDir, identity.ManifestFileName), string(manifestData)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(legacyManifestPath); err != nil {
+		t.Fatal(err)
+	}
 
 	binaryPath := filepath.Join(targetDir, ".op", "build", "bin", "echo-server")
 	if err := os.MkdirAll(filepath.Dir(binaryPath), 0o755); err != nil {
@@ -400,7 +413,7 @@ build:
 artifacts:
   binary: rob-go
 `
-	if err := os.WriteFile(filepath.Join(dir, "holon.yaml"), []byte(manifest), 0o644); err != nil {
+	if err := writeCLIManifestFile(filepath.Join(dir, identity.ManifestFileName), manifest); err != nil {
 		t.Fatal(err)
 	}
 

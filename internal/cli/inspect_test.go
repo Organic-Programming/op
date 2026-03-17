@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	holonmetav1 "github.com/organic-programming/go-holons/gen/go/holonmeta/v1"
+	"github.com/organic-programming/grace-op/internal/identity"
 	"google.golang.org/grpc"
 )
 
@@ -258,7 +259,7 @@ build:
 artifacts:
   binary: rob-go
 `
-	if err := os.WriteFile(filepath.Join(dir, "holon.yaml"), []byte(manifest), 0o644); err != nil {
+	if err := writeCLIManifestFile(filepath.Join(dir, identity.ManifestFileName), manifest); err != nil {
 		t.Fatal(err)
 	}
 

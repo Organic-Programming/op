@@ -109,12 +109,12 @@ func seedTransportHolon(t *testing.T, root string, seed transportHolonSeed) {
 		Lang:        seed.lang,
 		ProtoStatus: "draft",
 	}
-	if err := identity.WriteHolonYAML(id, filepath.Join(dir, identity.ManifestFileName)); err != nil {
+	if err := writeCLIIdentityFile(id, filepath.Join(dir, identity.ManifestFileName)); err != nil {
 		t.Fatal(err)
 	}
 	if seed.binaryName != "" {
 		manifest := fmt.Sprintf("%s\nkind: native\nbuild:\n  runner: go-module\nartifacts:\n  binary: %s\n", manifestIdentityPrefix(id), seed.binaryName)
-		if err := os.WriteFile(filepath.Join(dir, identity.ManifestFileName), []byte(manifest), 0644); err != nil {
+		if err := writeCLIManifestFile(filepath.Join(dir, identity.ManifestFileName), manifest); err != nil {
 			t.Fatal(err)
 		}
 	}

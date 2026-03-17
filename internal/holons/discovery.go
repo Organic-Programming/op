@@ -100,51 +100,9 @@ func discoverHolonsInRoot(root, origin string, relPath func(string, string) stri
 			}
 			return nil
 		}
-		if d.Name() != ManifestFileName {
-			if d.Name() == identity.ProtoManifestFileName {
-				protoFiles = append(protoFiles, path)
-			}
-			return nil
+		if d.Name() == identity.ProtoManifestFileName {
+			protoFiles = append(protoFiles, path)
 		}
-
-		dir := filepath.Dir(path)
-		absDir, err := filepath.Abs(dir)
-		if err != nil {
-			return nil
-		}
-
-		id, _, err := identity.ReadHolonYAML(path)
-		if err != nil {
-			return nil
-		}
-
-		manifest, err := LoadManifest(absDir)
-		if err != nil {
-			manifest = nil
-		}
-
-		entry := LocalHolon{
-			Dir:          absDir,
-			RelativePath: relPath(absRoot, absDir),
-			Origin:       origin,
-			Identity:     id,
-			IdentityPath: path,
-			Manifest:     manifest,
-		}
-
-		key := strings.TrimSpace(id.UUID)
-		if key == "" {
-			key = absDir
-		}
-		if existing, ok := candidates[key]; ok {
-			if discoveryPathDepth(entry.RelativePath) < discoveryPathDepth(existing.RelativePath) {
-				candidates[key] = entry
-			}
-			return nil
-		}
-
-		candidates[key] = entry
-		orderedKeys = append(orderedKeys, key)
 		return nil
 	})
 	if err != nil {
@@ -734,11 +692,7 @@ func resolveDir(ref, dir string) (*Target, error) {
 		RelativePath: workspaceRelativePath(absDir),
 	}
 
-	identityPath := filepath.Join(absDir, ManifestFileName)
-	if id, _, err := identity.ReadHolonYAML(identityPath); err == nil {
-		target.Identity = &id
-		target.IdentityPath = identityPath
-	} else if resolved, resolveErr := identity.Resolve(absDir); resolveErr == nil {
+	if resolved, resolveErr := identity.Resolve(absDir); resolveErr == nil {
 		target.Identity = &resolved.Identity
 		target.IdentityPath = resolved.SourcePath
 	}
@@ -769,7 +723,7 @@ func existingTargetDir(ref string) (string, bool, error) {
 	}
 
 	switch filepath.Base(ref) {
-	case ManifestFileName:
+	case identity.ProtoManifestFileName:
 		return filepath.Dir(ref), true, nil
 	default:
 		return "", false, fmt.Errorf("%s is not a holon directory", ref)

@@ -100,7 +100,7 @@ func TestRunNativeShowCommand(t *testing.T) {
 	if !strings.Contains(output, "Sophia TestHolon") {
 		t.Fatalf("show output missing identity name: %q", output)
 	}
-	if !strings.Contains(output, "holon.yaml") {
+	if !strings.Contains(output, identity.ManifestFileName) {
 		t.Fatalf("show output missing manifest path: %q", output)
 	}
 }
@@ -128,8 +128,11 @@ func TestRunNativeNewCommandJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), `generated_by: "op"`) {
-		t.Fatalf("created holon manifest missing generated_by op: %s", string(data))
+	if !strings.Contains(string(data), `option (holons.v1.manifest) = {`) {
+		t.Fatalf("created holon manifest missing manifest option: %s", string(data))
+	}
+	if !strings.Contains(string(data), `given_name: "Alpha"`) {
+		t.Fatalf("created holon manifest missing given_name: %s", string(data))
 	}
 	if !strings.Contains(output, "Identity created") {
 		t.Fatalf("new output missing creation message: %q", output)
@@ -703,7 +706,7 @@ func TestDiscoverCommandIncludesCachedAndInstalledHolons(t *testing.T) {
 		Lang:        "go",
 	}
 	cachedManifest := fmt.Sprintf("%s\nkind: native\nbuild:\n  runner: go-module\nartifacts:\n  binary: cached-holon\n", manifestIdentityPrefix(cachedID))
-	if err := os.WriteFile(filepath.Join(cacheDir, identity.ManifestFileName), []byte(cachedManifest), 0o644); err != nil {
+	if err := writeCLIManifestFile(filepath.Join(cacheDir, identity.ManifestFileName), cachedManifest); err != nil {
 		t.Fatal(err)
 	}
 
@@ -849,7 +852,7 @@ func TestInstallCommand(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "cmd", "demo", "main.go"), []byte("package main\nfunc main() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "holon.yaml"), []byte("schema: holon/v0\nkind: native\nbuild:\n  runner: go-module\nrequires:\n  commands: [go]\n  files: [go.mod]\nartifacts:\n  binary: demo\n"), 0o644); err != nil {
+	if err := writeCLIManifestFile(filepath.Join(dir, identity.ManifestFileName), "schema: holon/v0\nkind: native\nbuild:\n  runner: go-module\nrequires:\n  commands: [go]\n  files: [go.mod]\nartifacts:\n  binary: demo\n"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -892,7 +895,7 @@ func TestInstallCommandRebuildsExistingArtifact(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "cmd", "demo", "main.go"), []byte("package main\n\nimport \"fmt\"\n\nfunc main() { fmt.Println(\"fresh\") }\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "holon.yaml"), []byte("schema: holon/v0\nkind: native\nbuild:\n  runner: go-module\nrequires:\n  commands: [go]\n  files: [go.mod]\nartifacts:\n  binary: demo\n"), 0o644); err != nil {
+	if err := writeCLIManifestFile(filepath.Join(dir, identity.ManifestFileName), "schema: holon/v0\nkind: native\nbuild:\n  runner: go-module\nrequires:\n  commands: [go]\n  files: [go.mod]\nartifacts:\n  binary: demo\n"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -946,7 +949,7 @@ func TestInstallCommandJSONFormat(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "cmd", "demo", "main.go"), []byte("package main\nfunc main() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "holon.yaml"), []byte("schema: holon/v0\nkind: native\nbuild:\n  runner: go-module\nrequires:\n  commands: [go]\n  files: [go.mod]\nartifacts:\n  binary: demo\n"), 0o644); err != nil {
+	if err := writeCLIManifestFile(filepath.Join(dir, identity.ManifestFileName), "schema: holon/v0\nkind: native\nbuild:\n  runner: go-module\nrequires:\n  commands: [go]\n  files: [go.mod]\nartifacts:\n  binary: demo\n"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1020,7 +1023,7 @@ func TestInstallCommandNoBuildFailsWhenArtifactMissing(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module example.com/demo\n\ngo 1.24.0\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "holon.yaml"), []byte("schema: holon/v0\nkind: native\nbuild:\n  runner: go-module\nrequires:\n  commands: [go]\n  files: [go.mod]\nartifacts:\n  binary: demo\n"), 0o644); err != nil {
+	if err := writeCLIManifestFile(filepath.Join(dir, identity.ManifestFileName), "schema: holon/v0\nkind: native\nbuild:\n  runner: go-module\nrequires:\n  commands: [go]\n  files: [go.mod]\nartifacts:\n  binary: demo\n"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1052,7 +1055,7 @@ func TestInstallCommandInstallsCompositeBundle(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(bundle, "Contents", "MacOS", "MyApp"), []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "holon.yaml"), []byte("schema: holon/v0\nkind: composite\nbuild:\n  runner: recipe\n  members:\n    - id: app\n      path: app\n      type: component\n  targets:\n    macos:\n      steps:\n        - exec:\n            cwd: app\n            argv: [\"echo\", \"hello\"]\nartifacts:\n  primary: app/MyApp.app\n"), 0o644); err != nil {
+	if err := writeCLIManifestFile(filepath.Join(dir, identity.ManifestFileName), "schema: holon/v0\nkind: composite\nbuild:\n  runner: recipe\n  members:\n    - id: app\n      path: app\n      type: component\n  targets:\n    macos:\n      steps:\n        - exec:\n            cwd: app\n            argv: [\"echo\", \"hello\"]\nartifacts:\n  primary: app/MyApp.app\n"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1090,7 +1093,7 @@ func TestBuildCommandEmitsProgressAndSuggestions(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "cmd", "demo", "main.go"), []byte("package main\nfunc main() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "holon.yaml"), []byte("schema: holon/v0\nkind: native\ncontract:\n  grpc: true\nbuild:\n  runner: go-module\nrequires:\n  commands: [go]\n  files: [go.mod]\nartifacts:\n  binary: demo\n"), 0o644); err != nil {
+	if err := writeCLIManifestFile(filepath.Join(dir, identity.ManifestFileName), "schema: holon/v0\nkind: native\ncontract:\n  grpc: true\nbuild:\n  runner: go-module\nrequires:\n  commands: [go]\n  files: [go.mod]\nartifacts:\n  binary: demo\n"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1141,7 +1144,7 @@ func TestBuildCommandJSONSuppressesProgressAndSuggestions(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "cmd", "demo", "main.go"), []byte("package main\nfunc main() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "holon.yaml"), []byte("schema: holon/v0\nkind: native\ncontract:\n  grpc: true\nbuild:\n  runner: go-module\nrequires:\n  commands: [go]\n  files: [go.mod]\nartifacts:\n  binary: demo\n"), 0o644); err != nil {
+	if err := writeCLIManifestFile(filepath.Join(dir, identity.ManifestFileName), "schema: holon/v0\nkind: native\ncontract:\n  grpc: true\nbuild:\n  runner: go-module\nrequires:\n  commands: [go]\n  files: [go.mod]\nartifacts:\n  binary: demo\n"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1179,7 +1182,7 @@ func TestBuildCommandQuietSuppressesProgressAndSuggestions(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "cmd", "demo", "main.go"), []byte("package main\nfunc main() {}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "holon.yaml"), []byte("schema: holon/v0\nkind: native\ncontract:\n  grpc: true\nbuild:\n  runner: go-module\nrequires:\n  commands: [go]\n  files: [go.mod]\nartifacts:\n  binary: demo\n"), 0o644); err != nil {
+	if err := writeCLIManifestFile(filepath.Join(dir, identity.ManifestFileName), "schema: holon/v0\nkind: native\ncontract:\n  grpc: true\nbuild:\n  runner: go-module\nrequires:\n  commands: [go]\n  files: [go.mod]\nartifacts:\n  binary: demo\n"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1222,7 +1225,7 @@ func TestCheckAndDryRunBuildSupportPythonDartAndRubyRunners(t *testing.T) {
 					t.Fatal(err)
 				}
 				manifest := "schema: holon/v0\nkind: composite\nbuild:\n  runner: python\nrequires:\n  files: [app/main.py]\nartifacts:\n  primary: app/main.py\n"
-				if err := os.WriteFile(filepath.Join(dir, "holon.yaml"), []byte(manifest), 0o644); err != nil {
+				if err := writeCLIManifestFile(filepath.Join(dir, identity.ManifestFileName), manifest); err != nil {
 					t.Fatal(err)
 				}
 				return dir
@@ -1247,7 +1250,7 @@ func TestCheckAndDryRunBuildSupportPythonDartAndRubyRunners(t *testing.T) {
 					t.Fatal(err)
 				}
 				manifest := "schema: holon/v0\nkind: native\nbuild:\n  runner: dart\nrequires:\n  commands: [dart]\n  files: [pubspec.yaml, bin/main.dart]\nartifacts:\n  binary: dart-demo\n"
-				if err := os.WriteFile(filepath.Join(dir, "holon.yaml"), []byte(manifest), 0o644); err != nil {
+				if err := writeCLIManifestFile(filepath.Join(dir, identity.ManifestFileName), manifest); err != nil {
 					t.Fatal(err)
 				}
 				return dir
@@ -1273,7 +1276,7 @@ func TestCheckAndDryRunBuildSupportPythonDartAndRubyRunners(t *testing.T) {
 					t.Fatal(err)
 				}
 				manifest := "schema: holon/v0\nkind: composite\nbuild:\n  runner: ruby\nrequires:\n  files: [Gemfile, app/main.rb]\nartifacts:\n  primary: app/main.rb\n"
-				if err := os.WriteFile(filepath.Join(dir, "holon.yaml"), []byte(manifest), 0o644); err != nil {
+				if err := writeCLIManifestFile(filepath.Join(dir, identity.ManifestFileName), manifest); err != nil {
 					t.Fatal(err)
 				}
 				return dir
@@ -1357,7 +1360,7 @@ func TestBuildCommandDryRunAcceptsNoSign(t *testing.T) {
 	}
 	target := runtimeTargetForRunTest()
 	manifest := fmt.Sprintf("schema: holon/v0\nkind: composite\nbuild:\n  runner: recipe\n  members:\n    - id: app\n      path: app\n      type: component\n  targets:\n    %s:\n      steps:\n        - assert_file:\n            path: app/MyApp.app\nartifacts:\n  primary: app/MyApp.app\n", target)
-	if err := os.WriteFile(filepath.Join(dir, "holon.yaml"), []byte(manifest), 0o644); err != nil {
+	if err := writeCLIManifestFile(filepath.Join(dir, identity.ManifestFileName), manifest); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1448,7 +1451,7 @@ func TestModInitCommandInfersSlugFromHolonYAML(t *testing.T) {
 	id.Clade = "deterministic/pure"
 	id.Status = "draft"
 	id.Lang = "go"
-	if err := identity.WriteHolonYAML(id, filepath.Join(root, identity.ManifestFileName)); err != nil {
+	if err := writeCLIIdentityFile(id, filepath.Join(root, identity.ManifestFileName)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1496,7 +1499,7 @@ func TestModCommandsUseOPPATHCache(t *testing.T) {
 	cachedID.Clade = "deterministic/pure"
 	cachedID.Status = "draft"
 	cachedID.Lang = "go"
-	if err := identity.WriteHolonYAML(cachedID, filepath.Join(cacheDir, identity.ManifestFileName)); err != nil {
+	if err := writeCLIIdentityFile(cachedID, filepath.Join(cacheDir, identity.ManifestFileName)); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(cacheDir, "holon.mod"), []byte("holon github.com/example/dep\n\nrequire (\n    github.com/example/subdep v0.2.0\n)\n"), 0o644); err != nil {
@@ -1584,7 +1587,7 @@ func TestModCommandsJSONFormat(t *testing.T) {
 	id.Clade = "deterministic/pure"
 	id.Reproduction = "manual"
 	id.Lang = "go"
-	if err := identity.WriteHolonYAML(id, filepath.Join(root, identity.ManifestFileName)); err != nil {
+	if err := writeCLIIdentityFile(id, filepath.Join(root, identity.ManifestFileName)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1607,7 +1610,7 @@ func TestModCommandsJSONFormat(t *testing.T) {
 	if err := os.MkdirAll(cacheV14, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := identity.WriteHolonYAML(id, filepath.Join(cacheV14, identity.ManifestFileName)); err != nil {
+	if err := writeCLIIdentityFile(id, filepath.Join(cacheV14, identity.ManifestFileName)); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(cacheV14, "holon.mod"), []byte("holon github.com/example/dep\n"), 0o644); err != nil {
@@ -1618,7 +1621,7 @@ func TestModCommandsJSONFormat(t *testing.T) {
 	if err := os.MkdirAll(cacheV15, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := identity.WriteHolonYAML(id, filepath.Join(cacheV15, identity.ManifestFileName)); err != nil {
+	if err := writeCLIIdentityFile(id, filepath.Join(cacheV15, identity.ManifestFileName)); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(cacheV15, "holon.mod"), []byte("holon github.com/example/dep\n"), 0o644); err != nil {
@@ -1835,7 +1838,7 @@ func TestRunCommandRunsCompositePrimaryArtifact(t *testing.T) {
 		artifact,
 		artifact,
 	)
-	if err := os.WriteFile(filepath.Join(dir, "holon.yaml"), []byte(manifest), 0o644); err != nil {
+	if err := writeCLIManifestFile(filepath.Join(dir, identity.ManifestFileName), manifest); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1895,7 +1898,7 @@ func TestRunCommandNoBuildFailsWhenArtifactMissing(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "holon.yaml"), []byte("schema: holon/v0\nkind: native\nbuild:\n  runner: go-module\nrequires:\n  commands: [go]\n  files: [go.mod]\nartifacts:\n  binary: demo\n"), 0o644); err != nil {
+	if err := writeCLIManifestFile(filepath.Join(dir, identity.ManifestFileName), "schema: holon/v0\nkind: native\nbuild:\n  runner: go-module\nrequires:\n  commands: [go]\n  files: [go.mod]\nartifacts:\n  binary: demo\n"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -2284,7 +2287,7 @@ func writeRunServiceFixture(t *testing.T, dir, name string) {
 	if err := os.WriteFile(filepath.Join(dir, "cmd", name, "main.go"), []byte(runEchoMainSource(name)), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, "holon.yaml"), []byte(fmt.Sprintf("schema: holon/v0\nkind: native\nbuild:\n  runner: go-module\nrequires:\n  commands: [go]\n  files: [go.mod]\nartifacts:\n  binary: %s\n", name)), 0o644); err != nil {
+	if err := writeCLIManifestFile(filepath.Join(dir, identity.ManifestFileName), fmt.Sprintf("schema: holon/v0\nkind: native\nbuild:\n  runner: go-module\nrequires:\n  commands: [go]\n  files: [go.mod]\nartifacts:\n  binary: %s\n", name)); err != nil {
 		t.Fatal(err)
 	}
 }

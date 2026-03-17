@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	openv "github.com/organic-programming/grace-op/internal/env"
+	"github.com/organic-programming/grace-op/internal/identity"
 	"github.com/organic-programming/grace-op/internal/progress"
 )
 
@@ -49,7 +50,7 @@ func Install(ref string, opts InstallOptions) (InstallReport, error) {
 		return baseInstallReport("install", target, BuildContext{}), target.ManifestErr
 	}
 	if target.Manifest == nil {
-		return baseInstallReport("install", target, BuildContext{}), fmt.Errorf("no %s found in %s", ManifestSourceLabel(), target.RelativePath)
+		return baseInstallReport("install", target, BuildContext{}), fmt.Errorf("no %s found in %s", identity.ProtoManifestFileName, target.RelativePath)
 	}
 
 	ctx, err := resolveBuildContext(target.Manifest, BuildOptions{})

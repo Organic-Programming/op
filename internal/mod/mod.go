@@ -12,9 +12,9 @@ import (
 	"strings"
 
 	openv "github.com/organic-programming/grace-op/internal/env"
+	"github.com/organic-programming/grace-op/internal/identity"
 	"github.com/organic-programming/grace-op/internal/modfile"
 	"github.com/organic-programming/grace-op/internal/progress"
-	"github.com/organic-programming/grace-op/internal/identity"
 )
 
 type Dependency struct {
@@ -382,8 +382,7 @@ func Tidy(dir string, opts ...Options) (*TidyResult, error) {
 	pruned := make([]string, 0)
 	kept := make([]modfile.SumEntry, 0, len(sum.Entries))
 	for _, entry := range sum.Entries {
-		baseVersion := strings.TrimSuffix(entry.Version, "/holon.yaml")
-		if requiredVersion, ok := required[entry.Path]; ok && requiredVersion == baseVersion {
+		if requiredVersion, ok := required[entry.Path]; ok && requiredVersion == entry.Version {
 			kept = append(kept, entry)
 			continue
 		}
@@ -494,13 +493,9 @@ func resolveHolonPath(dir, explicit string) (string, error) {
 		return trimmed, nil
 	}
 
-	manifestPath := filepath.Join(dir, identity.ManifestFileName)
-	if _, err := os.Stat(manifestPath); err == nil {
-		id, _, err := identity.ReadHolonYAML(manifestPath)
-		if err == nil {
-			if slug := slugForIdentity(id); slug != "" {
-				return slug, nil
-			}
+	if resolved, err := identity.Resolve(dir); err == nil {
+		if slug := slugForIdentity(resolved.Identity); slug != "" {
+			return slug, nil
 		}
 	}
 
@@ -546,11 +541,6 @@ func setSumHashes(sum *modfile.SumFile, depPath, version, cachePath string) erro
 	}
 	if hash != "" {
 		sum.Set(depPath, version, "h1:"+hash)
-	}
-
-	holonYAMLHash, err := hashFile(filepath.Join(cachePath, "holon.yaml"))
-	if err == nil && holonYAMLHash != "" {
-		sum.Set(depPath, version+"/holon.yaml", "h1:"+holonYAMLHash)
 	}
 	return nil
 }
@@ -610,15 +600,6 @@ func hashDir(dir string) (string, error) {
 		return "", err
 	}
 	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-func hashFile(path string) (string, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	h := sha256.Sum256(data)
-	return hex.EncodeToString(h[:]), nil
 }
 
 func latestAvailableTag(depPath string) (string, error) {

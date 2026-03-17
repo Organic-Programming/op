@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/organic-programming/grace-op/internal/identity"
+	"github.com/organic-programming/grace-op/internal/testutil"
 )
 
 func writeManifestWithIdentity(t *testing.T, dir string, id identity.Identity, suffix string) {
@@ -31,14 +32,14 @@ func writeManifestWithIdentity(t *testing.T, dir string, id identity.Identity, s
 		id.Lang,
 		suffix,
 	)
-	if err := os.WriteFile(filepath.Join(dir, ManifestFileName), []byte(manifest), 0644); err != nil {
+	if err := testutil.WriteManifestFile(filepath.Join(dir, identity.ManifestFileName), manifest); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func TestLoadManifestRejectsUnknownField(t *testing.T) {
+func TestLoadManifestRequiresProtoManifest(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, ManifestFileName), []byte("schema: holon/v0\nkind: native\nunknown: true\nbuild:\n  runner: go-module\nartifacts:\n  binary: demo\n"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "manifest.txt"), []byte("kind: native\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -46,14 +47,14 @@ func TestLoadManifestRejectsUnknownField(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
-	if !strings.Contains(err.Error(), "field unknown not found") {
+	if !strings.Contains(err.Error(), identity.ProtoManifestFileName) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 func TestLoadManifestRejectsBinaryAndPrimaryTogether(t *testing.T) {
 	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, ManifestFileName), []byte("schema: holon/v0\nkind: composite\nbuild:\n  runner: recipe\n  members:\n    - id: app\n      path: app\n      type: component\n  targets:\n    macos:\n      steps:\n        - assert_file:\n            path: app/demo.app\nartifacts:\n  binary: demo\n  primary: app/demo.app\n"), 0644); err != nil {
+	if err := testutil.WriteManifestFile(filepath.Join(root, identity.ManifestFileName), "schema: holon/v0\nkind: composite\nbuild:\n  runner: recipe\n  members:\n    - id: app\n      path: app\n      type: component\n  targets:\n    macos:\n      steps:\n        - assert_file:\n            path: app/demo.app\nartifacts:\n  binary: demo\n  primary: app/demo.app\n"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -233,7 +234,7 @@ func TestExecuteLifecycleBuildAndCleanGoModule(t *testing.T) {
 		t.Fatal(err)
 	}
 	manifest := "schema: holon/v0\nkind: native\nbuild:\n  runner: go-module\nrequires:\n  commands: [go]\n  files: [go.mod]\nartifacts:\n  binary: demo\n"
-	if err := os.WriteFile(filepath.Join(dir, ManifestFileName), []byte(manifest), 0644); err != nil {
+	if err := testutil.WriteManifestFile(filepath.Join(dir, identity.ManifestFileName), manifest); err != nil {
 		t.Fatal(err)
 	}
 
@@ -274,7 +275,7 @@ func TestExecuteLifecycleBuildRejectsCrossTargetGoModule(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "cmd", "demo", "main.go"), []byte("package main\nfunc main() {}\n"), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ManifestFileName), []byte("schema: holon/v0\nkind: native\nbuild:\n  runner: go-module\nrequires:\n  commands: [go]\n  files: [go.mod]\nartifacts:\n  binary: demo\n"), 0644); err != nil {
+	if err := testutil.WriteManifestFile(filepath.Join(dir, identity.ManifestFileName), "schema: holon/v0\nkind: native\nbuild:\n  runner: go-module\nrequires:\n  commands: [go]\n  files: [go.mod]\nartifacts:\n  binary: demo\n"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -433,7 +434,7 @@ func TestCMakeRunnerDryRunUsesModeSpecificConfig(t *testing.T) {
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, ManifestFileName), []byte("schema: holon/v0\nkind: native\nbuild:\n  runner: cmake\nartifacts:\n  binary: demo\n"), 0644); err != nil {
+	if err := testutil.WriteManifestFile(filepath.Join(dir, identity.ManifestFileName), "schema: holon/v0\nkind: native\nbuild:\n  runner: cmake\nartifacts:\n  binary: demo\n"); err != nil {
 		t.Fatal(err)
 	}
 

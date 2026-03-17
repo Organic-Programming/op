@@ -23,3 +23,19 @@ func TestCheckReturnsLifecycleReport(t *testing.T) {
 		t.Fatalf("manifest basename = %q, want %q", got, "holon.proto")
 	}
 }
+
+func TestTestReturnsLifecycleReport(t *testing.T) {
+	root := t.TempDir()
+	dir := writeProtoHolon(t, root)
+
+	resp, err := api.Test(&opv1.LifecycleRequest{Target: dir})
+	if err != nil {
+		t.Fatalf("Test error = %v", err)
+	}
+	if got := resp.GetReport().GetOperation(); got != "test" {
+		t.Fatalf("operation = %q, want %q", got, "test")
+	}
+	if got := filepath.Base(resp.GetReport().GetManifest()); got != "holon.proto" {
+		t.Fatalf("manifest basename = %q, want %q", got, "holon.proto")
+	}
+}

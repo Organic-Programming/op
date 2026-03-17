@@ -151,7 +151,7 @@ func CreateInteractive(in io.Reader, out io.Writer) (*opv1.CreateIdentityRespons
 	return Create(req)
 }
 
-// Create creates a new identity and writes holon.yaml.
+// Create creates a new identity and writes holon.proto.
 func Create(req *opv1.CreateIdentityRequest) (*opv1.CreateIdentityResponse, error) {
 	if err := validateCreateRequest(req); err != nil {
 		return nil, err
@@ -182,8 +182,8 @@ func Create(req *opv1.CreateIdentityRequest) (*opv1.CreateIdentityResponse, erro
 	}
 
 	outputPath := filepath.Join(outputDir, identity.ManifestFileName)
-	if err := writeIdentityYAML(id, outputPath); err != nil {
-		return nil, fmt.Errorf("write holon.yaml: %w", err)
+	if err := writeIdentityProto(id, outputPath); err != nil {
+		return nil, fmt.Errorf("write holon.proto: %w", err)
 	}
 
 	return &opv1.CreateIdentityResponse{
@@ -337,25 +337,8 @@ func reproductionString(value opv1.ReproductionMode) string {
 	}
 }
 
-func writeIdentityYAML(id identity.Identity, outputPath string) error {
-	if err := identity.WriteHolonYAML(id, outputPath); err != nil {
-		return err
-	}
-
-	data, err := os.ReadFile(outputPath)
-	if err != nil {
-		return err
-	}
-
-	lines := strings.Split(string(data), "\n")
-	filtered := make([]string, 0, len(lines))
-	for _, line := range lines {
-		if strings.HasPrefix(strings.TrimSpace(line), "aliases:") {
-			continue
-		}
-		filtered = append(filtered, line)
-	}
-	return os.WriteFile(outputPath, []byte(strings.Join(filtered, "\n")), 0o644)
+func writeIdentityProto(id identity.Identity, outputPath string) error {
+	return identity.WriteHolonProto(id, outputPath)
 }
 
 func toProto(id identity.Identity) *opv1.HolonIdentity {

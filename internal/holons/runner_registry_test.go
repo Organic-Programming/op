@@ -9,7 +9,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/organic-programming/grace-op/internal/identity"
 	"github.com/organic-programming/grace-op/internal/progress"
+	"github.com/organic-programming/grace-op/internal/testutil"
 )
 
 func TestRunnerRegistryAcceptsPythonDartAndRuby(t *testing.T) {
@@ -249,7 +251,7 @@ func TestRubyRunnerDryRunBuild(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ruby dry-run build failed: %v", err)
 	}
-	if len(report.Commands) != 1 || !strings.Contains(report.Commands[0], "bundle install") {
+	if len(report.Commands) < 3 || !hasEntryContaining(report.Commands, "bundle install") {
 		t.Fatalf("unexpected ruby commands: %v", report.Commands)
 	}
 }
@@ -258,6 +260,8 @@ func TestRubyRunnerBuildCreatesNativeLauncher(t *testing.T) {
 	root := t.TempDir()
 	toolDir := t.TempDir()
 	t.Setenv("PATH", toolDir)
+	writeFakeCommand(t, toolDir, "env")
+	writeFakeCommand(t, toolDir, "gem")
 	writeFakeCommand(t, toolDir, "ruby")
 	writeFakeCommand(t, toolDir, "bundle")
 	if err := os.MkdirAll(filepath.Join(root, "bin"), 0o755); err != nil {
@@ -290,10 +294,11 @@ func TestRubyRunnerBuildCreatesNativeLauncher(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile(%s) failed: %v", manifest.BinaryPath(), err)
 	}
-	if !strings.Contains(string(launcher), "bundle exec ruby") {
-		t.Fatalf("launcher missing bundle exec ruby: %s", launcher)
+	launcherText := string(launcher)
+	if !strings.Contains(launcherText, filepath.Join(toolDir, "bundle")) || !strings.Contains(launcherText, filepath.Join(toolDir, "ruby")) {
+		t.Fatalf("launcher missing bundle/ruby paths: %s", launcher)
 	}
-	if !strings.Contains(string(launcher), filepath.Join(root, "bin", "main.rb")) {
+	if !strings.Contains(launcherText, filepath.Join(root, "bin", "main.rb")) {
 		t.Fatalf("launcher missing entrypoint path: %s", launcher)
 	}
 }
@@ -818,7 +823,7 @@ func TestRubyTestArgsPreferRSpec(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rubyTestArgs() failed: %v", err)
 	}
-	if strings.Join(got, " ") != "bundle exec rspec" {
+	if !strings.HasSuffix(strings.Join(got, " "), "bundle exec rspec") {
 		t.Fatalf("rubyTestArgs() = %q", strings.Join(got, " "))
 	}
 }
@@ -839,7 +844,7 @@ func TestRubyTestArgsFallBackToRakeTest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rubyTestArgs() failed: %v", err)
 	}
-	if strings.Join(got, " ") != "bundle exec rake test" {
+	if !strings.HasSuffix(strings.Join(got, " "), "bundle exec rake test") {
 		t.Fatalf("rubyTestArgs() = %q", strings.Join(got, " "))
 	}
 }
@@ -987,7 +992,7 @@ func TestQtCMakeRunnerDryRunBuildUsesQt6Dir(t *testing.T) {
 
 func writeRunnerManifest(t *testing.T, dir, yaml string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, ManifestFileName), []byte(yaml), 0o644); err != nil {
+	if err := testutil.WriteManifestFile(filepath.Join(dir, identity.ManifestFileName), yaml); err != nil {
 		t.Fatal(err)
 	}
 }

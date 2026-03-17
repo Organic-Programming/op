@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/organic-programming/grace-op/internal/holons"
+	"github.com/organic-programming/grace-op/internal/identity"
+	"github.com/organic-programming/grace-op/internal/testutil"
 )
 
 func TestBuildSuggestionsIncludeTestInstallRunAndDirectLaunch(t *testing.T) {
@@ -200,7 +202,7 @@ func writeSuggestManifest(t *testing.T, dir, kind, binary string, contract any) 
 		contractBlock = "contract:\n  grpc: true\n"
 	}
 	content := "schema: holon/v0\nkind: " + kind + "\n" + buildBlock + "artifacts:\n" + artifactBlock + contractBlock
-	if err := os.WriteFile(filepath.Join(dir, "holon.yaml"), []byte(content), 0o644); err != nil {
+	if err := testutil.WriteManifestFile(filepath.Join(dir, identity.ManifestFileName), content); err != nil {
 		t.Fatal(err)
 	}
 	manifest, err := holons.LoadManifest(dir)

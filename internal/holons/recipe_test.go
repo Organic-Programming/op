@@ -8,11 +8,14 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/organic-programming/grace-op/internal/identity"
+	"github.com/organic-programming/grace-op/internal/testutil"
 )
 
 func writeRecipeManifest(t *testing.T, dir, yaml string) {
 	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, ManifestFileName), []byte(yaml), 0644); err != nil {
+	if err := testutil.WriteManifestFile(filepath.Join(dir, identity.ManifestFileName), yaml); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -109,7 +112,7 @@ func TestLoadManifestAcceptsCompositeRecipe(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "child-a"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "child-a", ManifestFileName), []byte(`schema: holon/v0
+	if err := testutil.WriteManifestFile(filepath.Join(root, "child-a", identity.ManifestFileName), `schema: holon/v0
 kind: native
 build:
   runner: go-module
@@ -118,7 +121,7 @@ requires:
   files: [go.mod]
 artifacts:
   binary: child-a
-`), 0644); err != nil {
+`); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(root, "child-b"), 0755); err != nil {
@@ -588,7 +591,7 @@ func TestRecipeValidationRejectsMultiActionStep(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "child"), 0755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "child", ManifestFileName), []byte(`schema: holon/v0
+	if err := testutil.WriteManifestFile(filepath.Join(root, "child", identity.ManifestFileName), `schema: holon/v0
 kind: native
 build:
   runner: go-module
@@ -597,7 +600,7 @@ requires:
   files: [go.mod]
 artifacts:
   binary: child
-`), 0644); err != nil {
+`); err != nil {
 		t.Fatal(err)
 	}
 
@@ -624,7 +627,7 @@ artifacts:
 	if err == nil {
 		t.Fatal("expected multi-action step error")
 	}
-	if !strings.Contains(err.Error(), "exactly one action") {
+	if !strings.Contains(err.Error(), "oneof") && !strings.Contains(err.Error(), "already has field") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -755,13 +758,13 @@ func TestRecipeValidationRejectsCopyArtifactInvalidDestination(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(root, "child"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "child", ManifestFileName), []byte(`schema: holon/v0
+	if err := testutil.WriteManifestFile(filepath.Join(root, "child", identity.ManifestFileName), `schema: holon/v0
 kind: native
 build:
   runner: go-module
 artifacts:
   binary: child
-`), 0o644); err != nil {
+`); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(root, "app"), 0o755); err != nil {

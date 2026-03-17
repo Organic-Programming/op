@@ -10,6 +10,7 @@ import (
 
 	openv "github.com/organic-programming/grace-op/internal/env"
 	"github.com/organic-programming/grace-op/internal/identity"
+	"github.com/organic-programming/grace-op/internal/testutil"
 )
 
 func TestCreateFromJSONWritesGeneratedByOp(t *testing.T) {
@@ -25,8 +26,11 @@ func TestCreateFromJSONWritesGeneratedByOp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(data), `generated_by: "op"`) {
-		t.Fatalf("manifest missing generated_by op: %s", string(data))
+	if !strings.Contains(string(data), `option (holons.v1.manifest) = {`) {
+		t.Fatalf("manifest missing manifest option: %s", string(data))
+	}
+	if !strings.Contains(string(data), `given_name: "Megg"`) {
+		t.Fatalf("manifest missing given_name: %s", string(data))
 	}
 	if strings.Contains(string(data), "aliases:") {
 		t.Fatalf("manifest unexpectedly contains aliases: %s", string(data))
@@ -87,7 +91,7 @@ func TestShowResolvesUUIDPrefix(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := identity.WriteHolonYAML(id, filepath.Join(dir, identity.ManifestFileName)); err != nil {
+	if err := testutil.WriteIdentityFile(id, filepath.Join(dir, identity.ManifestFileName)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -121,7 +125,7 @@ func TestListIncludesLocalAndCachedIdentities(t *testing.T) {
 	if err := os.MkdirAll(localDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := identity.WriteHolonYAML(localID, filepath.Join(localDir, identity.ManifestFileName)); err != nil {
+	if err := testutil.WriteIdentityFile(localID, filepath.Join(localDir, identity.ManifestFileName)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -138,7 +142,7 @@ func TestListIncludesLocalAndCachedIdentities(t *testing.T) {
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := identity.WriteHolonYAML(cachedID, filepath.Join(cacheDir, identity.ManifestFileName)); err != nil {
+	if err := testutil.WriteIdentityFile(cachedID, filepath.Join(cacheDir, identity.ManifestFileName)); err != nil {
 		t.Fatal(err)
 	}
 

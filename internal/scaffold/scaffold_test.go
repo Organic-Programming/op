@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/organic-programming/grace-op/internal/identity"
 )
 
 func TestListIncludesTemplatesAndCompositeAliases(t *testing.T) {
@@ -52,7 +54,7 @@ func TestGenerateGoDaemonAppliesOverrides(t *testing.T) {
 		t.Fatalf("main.go missing overridden service: %s", string(data))
 	}
 
-	manifestPath := filepath.Join(root, "alpha-builder", "holon.yaml")
+	manifestPath := filepath.Join(root, "alpha-builder", identity.ManifestFileName)
 	manifestData, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatalf("ReadFile(%s) failed: %v", manifestPath, err)
@@ -75,7 +77,7 @@ func TestGenerateCompositeAliasRendersKinds(t *testing.T) {
 		t.Fatalf("result.Template = %q, want %q", result.Template, "composite-go-swiftui")
 	}
 
-	manifestPath := filepath.Join(root, "orbit-console", "holon.yaml")
+	manifestPath := filepath.Join(root, "orbit-console", identity.ManifestFileName)
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatalf("ReadFile(%s) failed: %v", manifestPath, err)
@@ -83,9 +85,9 @@ func TestGenerateCompositeAliasRendersKinds(t *testing.T) {
 	content := string(data)
 	for _, expected := range []string{
 		"motto: \"go + swiftui composite.\"",
-		"primary: app/app.txt",
-		"path: daemon",
-		"path: app",
+		"primary: \"app/app.txt\"",
+		"path: \"daemon\"",
+		"path: \"app\"",
 	} {
 		if !strings.Contains(content, expected) {
 			t.Fatalf("manifest missing %q:\n%s", expected, content)
@@ -104,17 +106,17 @@ func TestGeneratePythonDaemonUsesPythonRunner(t *testing.T) {
 		t.Fatalf("result.Template = %q, want %q", result.Template, "python-daemon")
 	}
 
-	manifestPath := filepath.Join(root, "serene-service", "holon.yaml")
+	manifestPath := filepath.Join(root, "serene-service", identity.ManifestFileName)
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatalf("ReadFile(%s) failed: %v", manifestPath, err)
 	}
 	content := string(data)
 	for _, expected := range []string{
-		"kind: composite",
-		"runner: python",
-		"files: [app/main.py]",
-		"primary: app/main.py",
+		"kind: \"composite\"",
+		"runner: \"python\"",
+		"files: [\"app/main.py\"]",
+		"primary: \"app/main.py\"",
 	} {
 		if !strings.Contains(content, expected) {
 			t.Fatalf("manifest missing %q:\n%s", expected, content)
@@ -136,18 +138,18 @@ func TestGenerateDartDaemonUsesDartRunnerAndBinMain(t *testing.T) {
 		t.Fatalf("result.Template = %q, want %q", result.Template, "dart-daemon")
 	}
 
-	manifestPath := filepath.Join(root, "steady-engine", "holon.yaml")
+	manifestPath := filepath.Join(root, "steady-engine", identity.ManifestFileName)
 	data, err := os.ReadFile(manifestPath)
 	if err != nil {
 		t.Fatalf("ReadFile(%s) failed: %v", manifestPath, err)
 	}
 	content := string(data)
 	for _, expected := range []string{
-		"kind: native",
-		"runner: dart",
-		"commands: [dart]",
-		"files: [pubspec.yaml, bin/main.dart]",
-		"binary: steady-engine",
+		"kind: \"native\"",
+		"runner: \"dart\"",
+		"commands: [\"dart\"]",
+		"files: [\"pubspec.yaml\", \"bin/main.dart\"]",
+		"binary: \"steady-engine\"",
 	} {
 		if !strings.Contains(content, expected) {
 			t.Fatalf("manifest missing %q:\n%s", expected, content)

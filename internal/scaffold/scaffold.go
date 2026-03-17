@@ -12,6 +12,7 @@ import (
 	"text/template"
 	"time"
 
+	"github.com/organic-programming/grace-op/internal/manifestproto"
 	templatesfs "github.com/organic-programming/grace-op/templates"
 	"gopkg.in/yaml.v3"
 )
@@ -164,12 +165,22 @@ func Generate(templateName, slug string, opts GenerateOptions) (GenerateResult, 
 		if err != nil {
 			return err
 		}
-		if strings.HasSuffix(dest, ".tmpl") {
-			dest = strings.TrimSuffix(dest, ".tmpl")
+		if strings.HasSuffix(path, ".tmpl") {
 			rendered, renderErr := renderContent(string(data), ctx)
 			if renderErr != nil {
 				return renderErr
 			}
+			if manifestproto.IsLegacyTemplatePath(rel) {
+				dest = filepath.Join(outputDir, filepath.Dir(rel), manifestproto.OutputFileName())
+				protoData, protoErr := manifestproto.RenderFromYAML([]byte(rendered), manifestproto.RenderOptions{
+					FallbackName: slug,
+				})
+				if protoErr != nil {
+					return protoErr
+				}
+				return os.WriteFile(dest, protoData, 0o644)
+			}
+			dest = strings.TrimSuffix(dest, ".tmpl")
 			return os.WriteFile(dest, []byte(rendered), 0o644)
 		}
 		return os.WriteFile(dest, data, 0o644)

@@ -1,7 +1,6 @@
 package holons
 
 import (
-	"bytes"
 	"errors"
 	"fmt"
 	"os"
@@ -11,163 +10,157 @@ import (
 	"strings"
 
 	"github.com/organic-programming/grace-op/internal/identity"
-	"gopkg.in/yaml.v3"
 )
 
 const (
-	SchemaV0         = "holon/v0"
-	KindNative       = "native"
-	KindWrapper      = "wrapper"
-	KindComposite    = "composite"
-	RunnerGoModule   = "go-module"
-	RunnerCMake      = "cmake"
-	RunnerCargo      = "cargo"
-	RunnerPython     = "python"
-	RunnerDart       = "dart"
-	RunnerRuby       = "ruby"
-	RunnerSwiftPkg   = "swift-package"
-	RunnerFlutter    = "flutter"
-	RunnerNPM        = "npm"
-	RunnerGradle     = "gradle"
-	RunnerDotnet     = "dotnet"
-	RunnerQtCMake    = "qt-cmake"
-	RunnerRecipe     = "recipe"
-	ManifestFileName = "holon.yaml"
+	SchemaV0       = "holon/v0"
+	KindNative     = "native"
+	KindWrapper    = "wrapper"
+	KindComposite  = "composite"
+	RunnerGoModule = "go-module"
+	RunnerCMake    = "cmake"
+	RunnerCargo    = "cargo"
+	RunnerPython   = "python"
+	RunnerDart     = "dart"
+	RunnerRuby     = "ruby"
+	RunnerSwiftPkg = "swift-package"
+	RunnerFlutter  = "flutter"
+	RunnerNPM      = "npm"
+	RunnerGradle   = "gradle"
+	RunnerDotnet   = "dotnet"
+	RunnerQtCMake  = "qt-cmake"
+	RunnerRecipe   = "recipe"
 )
 
-func ManifestSourceLabel() string {
-	return identity.ProtoManifestFileName + " or " + ManifestFileName
-}
-
 type Manifest struct {
-	// Identity fields — present in holon.yaml but not used by lifecycle.
-	Schema      string   `yaml:"schema"`
-	UUID        string   `yaml:"uuid,omitempty"`
-	GivenName   string   `yaml:"given_name,omitempty"`
-	FamilyName  string   `yaml:"family_name,omitempty"`
-	Motto       string   `yaml:"motto,omitempty"`
-	Composer    string   `yaml:"composer,omitempty"`
-	Clade       string   `yaml:"clade,omitempty"`
-	Status      string   `yaml:"status,omitempty"`
-	Born        string   `yaml:"born,omitempty"`
-	Lang        string   `yaml:"lang,omitempty"`
-	Aliases     []string `yaml:"aliases,omitempty"`
-	ProtoStatus string   `yaml:"proto_status,omitempty"`
+	// Identity fields — present in holon.proto but not used by lifecycle.
+	Schema      string
+	UUID        string
+	GivenName   string
+	FamilyName  string
+	Motto       string
+	Composer    string
+	Clade       string
+	Status      string
+	Born        string
+	Lang        string
+	Aliases     []string
+	ProtoStatus string
 
 	// Lineage fields.
-	Parents      []string `yaml:"parents,omitempty"`
-	Reproduction string   `yaml:"reproduction,omitempty"`
-	GeneratedBy  string   `yaml:"generated_by,omitempty"`
+	Parents      []string
+	Reproduction string
+	GeneratedBy  string
 
 	// Description.
-	Description string     `yaml:"description,omitempty"`
-	Skills      []Skill    `yaml:"skills,omitempty"`
-	Sequences   []Sequence `yaml:"sequences,omitempty"`
+	Description string
+	Skills      []Skill
+	Sequences   []Sequence
 
 	// Operational fields — used by lifecycle.
-	Kind      string        `yaml:"kind"`
-	Transport string        `yaml:"transport,omitempty"`
-	Platforms []string      `yaml:"platforms,omitempty"`
-	Build     BuildConfig   `yaml:"build"`
-	Requires  Requires      `yaml:"requires,omitempty"`
-	Delegates Delegates     `yaml:"delegates,omitempty"`
-	Artifacts ArtifactPaths `yaml:"artifacts"`
+	Kind      string
+	Transport string
+	Platforms []string
+	Build     BuildConfig
+	Requires  Requires
+	Delegates Delegates
+	Artifacts ArtifactPaths
 
 	// Contract fields — not used by lifecycle.
-	Contract interface{} `yaml:"contract,omitempty"`
+	Contract interface{}
 }
 
 type Skill struct {
-	Name        string   `yaml:"name"`
-	Description string   `yaml:"description"`
-	When        string   `yaml:"when,omitempty"`
-	Steps       []string `yaml:"steps"`
+	Name        string
+	Description string
+	When        string
+	Steps       []string
 }
 
 type Sequence struct {
-	Name        string          `yaml:"name"`
-	Description string          `yaml:"description"`
-	Params      []SequenceParam `yaml:"params,omitempty"`
-	Steps       []string        `yaml:"steps"`
+	Name        string
+	Description string
+	Params      []SequenceParam
+	Steps       []string
 }
 
 type SequenceParam struct {
-	Name        string `yaml:"name"`
-	Description string `yaml:"description,omitempty"`
-	Required    bool   `yaml:"required,omitempty"`
-	Default     string `yaml:"default,omitempty"`
+	Name        string
+	Description string
+	Required    bool
+	Default     string
 }
 
 type BuildConfig struct {
-	Runner   string                  `yaml:"runner"`
-	Main     string                  `yaml:"main,omitempty"`
-	Defaults *RecipeDefaults         `yaml:"defaults,omitempty"`
-	Members  []RecipeMember          `yaml:"members,omitempty"`
-	Targets  map[string]RecipeTarget `yaml:"targets,omitempty"`
+	Runner   string
+	Main     string
+	Defaults *RecipeDefaults
+	Members  []RecipeMember
+	Targets  map[string]RecipeTarget
 }
 
 // RecipeDefaults provides default target and mode for recipe builds.
 type RecipeDefaults struct {
-	Target string `yaml:"target,omitempty"`
-	Mode   string `yaml:"mode,omitempty"`
+	Target string
+	Mode   string
 }
 
 // RecipeMember is a named build participant in a composite holon.
 type RecipeMember struct {
-	ID   string `yaml:"id"`
-	Path string `yaml:"path"`
-	Type string `yaml:"type"` // "holon" or "component"
+	ID   string
+	Path string
+	Type string // "holon" or "component"
 }
 
 // RecipeTarget defines the build steps for a specific platform.
 type RecipeTarget struct {
-	Steps []RecipeStep `yaml:"steps"`
+	Steps []RecipeStep
 }
 
 // RecipeStep is one step in a recipe build plan.
 // Exactly one field should be set.
 type RecipeStep struct {
-	BuildMember  string                  `yaml:"build_member,omitempty"`
-	Exec         *RecipeStepExec         `yaml:"exec,omitempty"`
-	Copy         *RecipeStepCopy         `yaml:"copy,omitempty"`
-	AssertFile   *RecipeStepFile         `yaml:"assert_file,omitempty"`
-	CopyArtifact *RecipeStepCopyArtifact `yaml:"copy_artifact,omitempty"`
+	BuildMember  string
+	Exec         *RecipeStepExec
+	Copy         *RecipeStepCopy
+	AssertFile   *RecipeStepFile
+	CopyArtifact *RecipeStepCopyArtifact
 }
 
 // RecipeStepExec runs a command with an explicit argv and working directory.
 type RecipeStepExec struct {
-	Cwd  string   `yaml:"cwd"`
-	Argv []string `yaml:"argv"`
+	Cwd  string
+	Argv []string
 }
 
 // RecipeStepCopy copies a file from one manifest-relative path to another.
 type RecipeStepCopy struct {
-	From string `yaml:"from"`
-	To   string `yaml:"to"`
+	From string
+	To   string
 }
 
 // RecipeStepFile verifies a manifest-relative file exists.
 type RecipeStepFile struct {
-	Path string `yaml:"path"`
+	Path string
 }
 
 type RecipeStepCopyArtifact struct {
-	From string `yaml:"from"`
-	To   string `yaml:"to"`
+	From string
+	To   string
 }
 
 type Requires struct {
-	Commands []string `yaml:"commands,omitempty"`
-	Files    []string `yaml:"files,omitempty"`
+	Commands []string
+	Files    []string
 }
 
 type Delegates struct {
-	Commands []string `yaml:"commands,omitempty"`
+	Commands []string
 }
 
 type ArtifactPaths struct {
-	Binary  string `yaml:"binary"`
-	Primary string `yaml:"primary,omitempty"`
+	Binary  string
+	Primary string
 }
 
 type LoadedManifest struct {
@@ -195,43 +188,13 @@ func LoadManifest(dir string) (*LoadedManifest, error) {
 		return nil, fmt.Errorf("resolve %s: %w", dir, err)
 	}
 
-	if loaded, err := loadProtoManifest(absDir); err == nil {
-		return loaded, nil
-	} else if !errors.Is(err, errProtoManifestNotFound) {
-		return nil, err
-	}
-
-	manifestPath := filepath.Join(absDir, ManifestFileName)
-	data, err := os.ReadFile(manifestPath)
+	loaded, err := loadProtoManifest(absDir)
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", manifestPath, err)
-	}
-
-	return loadYAMLManifest(absDir, manifestPath, data)
-}
-
-func loadYAMLManifest(absDir, manifestPath string, data []byte) (*LoadedManifest, error) {
-	var manifest Manifest
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
-	if err := decoder.Decode(&manifest); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", manifestPath, err)
-	}
-
-	loaded := &LoadedManifest{
-		Manifest: manifest,
-		Dir:      absDir,
-		Path:     manifestPath,
-		Name:     filepath.Base(absDir),
-	}
-
-	if err := normalizeManifest(loaded); err != nil {
+		if errors.Is(err, errProtoManifestNotFound) {
+			return nil, fmt.Errorf("no %s found in %s", identity.ProtoManifestFileName, absDir)
+		}
 		return nil, err
 	}
-	if err := validateManifest(loaded); err != nil {
-		return nil, err
-	}
-
 	return loaded, nil
 }
 
@@ -317,6 +280,11 @@ func manifestFromResolved(resolved *identity.Resolved) Manifest {
 		return Manifest{}
 	}
 
+	var contract any
+	if resolved.HasContract {
+		contract = struct{}{}
+	}
+
 	return Manifest{
 		Schema:       SchemaV0,
 		UUID:         resolved.Identity.UUID,
@@ -350,6 +318,7 @@ func manifestFromResolved(resolved *identity.Resolved) Manifest {
 			Binary:  resolved.ArtifactBinary,
 			Primary: resolved.PrimaryArtifact,
 		},
+		Contract: contract,
 	}
 }
 

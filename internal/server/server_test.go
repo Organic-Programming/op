@@ -14,6 +14,7 @@ import (
 	"github.com/organic-programming/grace-op/internal/grpcclient"
 	"github.com/organic-programming/grace-op/internal/identity"
 	"github.com/organic-programming/grace-op/internal/server"
+	"github.com/organic-programming/grace-op/internal/testutil"
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
@@ -61,7 +62,7 @@ func startTestServer(t *testing.T, root string) (opv1.OPServiceClient, func()) {
 	return opv1.NewOPServiceClient(conn), cleanup
 }
 
-// seedHolon creates a holon.yaml in a temp subdirectory.
+// seedHolon creates a holon.proto in a temp subdirectory.
 func seedHolon(t *testing.T, root, uuid, givenName string) {
 	t.Helper()
 	dir := filepath.Join(root, givenName)
@@ -80,7 +81,7 @@ func seedHolon(t *testing.T, root, uuid, givenName string) {
 		GeneratedBy: "test",
 		Lang:        "go",
 	}
-	if err := identity.WriteHolonYAML(id, filepath.Join(dir, identity.ManifestFileName)); err != nil {
+	if err := testutil.WriteIdentityFile(id, filepath.Join(dir, identity.ManifestFileName)); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -189,7 +190,7 @@ func TestCreateIdentity(t *testing.T) {
 		t.Errorf("GivenName = %q, want %q", resp.Identity.GivenName, "NewHolon")
 	}
 	if _, err := os.Stat(resp.FilePath); err != nil {
-		t.Errorf("holon.yaml not created: %v", err)
+		t.Errorf("holon.proto not created: %v", err)
 	}
 }
 

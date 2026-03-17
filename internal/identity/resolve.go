@@ -27,6 +27,7 @@ type Resolved struct {
 	Description      string
 	Skills           []ResolvedSkill
 	Sequences        []ResolvedSequence
+	HasContract      bool
 	Kind             string
 	Transport        string
 	Platforms        []string
@@ -106,28 +107,13 @@ type ResolvedSequenceParam struct {
 	Default     string
 }
 
-// Resolve discovers a holon identity from dir, preferring holon.proto and
-// falling back to legacy holon.yaml.
+// Resolve discovers a holon identity from dir using holon.proto only.
 func Resolve(dir string) (*Resolved, error) {
 	absDir, err := filepath.Abs(dir)
 	if err != nil {
 		return nil, fmt.Errorf("resolve dir %s: %w", dir, err)
 	}
-
-	if resolved, err := resolveFromProto(absDir); err == nil {
-		return resolved, nil
-	}
-
-	yamlPath := filepath.Join(absDir, ManifestFileName)
-	id, _, err := ReadHolonYAML(yamlPath)
-	if err != nil {
-		return nil, fmt.Errorf("no %s or %s found in %s", ProtoManifestFileName, ManifestFileName, absDir)
-	}
-
-	return &Resolved{
-		Identity:   id,
-		SourcePath: yamlPath,
-	}, nil
+	return resolveFromProto(absDir)
 }
 
 // ResolveFromProtoFile extracts a holon identity from a specific holon.proto.
@@ -161,7 +147,7 @@ func resolveFromProto(absDir string) (*Resolved, error) {
 		return nil, err
 	}
 	if len(protoFiles) == 0 {
-		return nil, fmt.Errorf("no proto files found in %s", absDir)
+		return nil, fmt.Errorf("no %s files found in %s", ProtoManifestFileName, absDir)
 	}
 
 	files, err := parseProtoFiles(absDir, protoFiles)
@@ -176,7 +162,7 @@ func resolveFromProto(absDir string) (*Resolved, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("no manifest extension found in %s", absDir)
+	return nil, fmt.Errorf("no manifest extension found in %s under %s", ProtoManifestFileName, absDir)
 }
 
 func parseProtoFiles(baseDir string, relFiles []string) ([]*desc.FileDescriptor, error) {
@@ -301,16 +287,9 @@ func resolvedFromDynamic(manifest *dynamic.Message) *Resolved {
 		resolved.Identity.FamilyName = dynString(ident, 4)
 		resolved.Identity.Motto = dynString(ident, 5)
 		resolved.Identity.Composer = dynString(ident, 6)
-		resolved.Identity.Clade = dynString(ident, 7)
 		resolved.Identity.Status = dynString(ident, 8)
 		resolved.Identity.Born = dynString(ident, 9)
 		resolved.Identity.Aliases = dynStringSlice(ident, 11)
-	}
-
-	if lineage := dynSubMessage(manifest, 2); lineage != nil {
-		resolved.Identity.Parents = dynStringSlice(lineage, 1)
-		resolved.Identity.Reproduction = dynString(lineage, 2)
-		resolved.Identity.GeneratedBy = dynString(lineage, 3)
 	}
 
 	if build := dynSubMessage(manifest, 10); build != nil {
@@ -366,6 +345,7 @@ func resolvedFromDynamic(manifest *dynamic.Message) *Resolved {
 			Steps:       trimNonEmptyStrings(dynStringSlice(skill, 4)),
 		})
 	}
+	resolved.HasContract = dynSubMessage(manifest, 6) != nil
 
 	resolved.Sequences = make([]ResolvedSequence, 0)
 	for _, sequence := range dynSubMessages(manifest, 14) {

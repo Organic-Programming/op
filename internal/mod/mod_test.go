@@ -8,6 +8,7 @@ import (
 
 	openv "github.com/organic-programming/grace-op/internal/env"
 	"github.com/organic-programming/grace-op/internal/identity"
+	"github.com/organic-programming/grace-op/internal/testutil"
 )
 
 func TestInitInfersHolonPathFromIdentity(t *testing.T) {
@@ -21,7 +22,7 @@ func TestInitInfersHolonPathFromIdentity(t *testing.T) {
 	id.Clade = "deterministic/pure"
 	id.Status = "draft"
 	id.Lang = "go"
-	if err := identity.WriteHolonYAML(id, filepath.Join(dir, identity.ManifestFileName)); err != nil {
+	if err := testutil.WriteIdentityFile(id, filepath.Join(dir, identity.ManifestFileName)); err != nil {
 		t.Fatal(err)
 	}
 
@@ -132,7 +133,7 @@ func TestPullUsesOPPATHCache(t *testing.T) {
 	id.Clade = "deterministic/pure"
 	id.Status = "draft"
 	id.Lang = "go"
-	if err := identity.WriteHolonYAML(id, filepath.Join(cacheDir, identity.ManifestFileName)); err != nil {
+	if err := testutil.WriteIdentityFile(id, filepath.Join(cacheDir, identity.ManifestFileName)); err != nil {
 		t.Fatal(err)
 	}
 

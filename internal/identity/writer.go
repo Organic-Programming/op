@@ -3,71 +3,76 @@ package identity
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
-	"text/template"
 )
 
-// holonTemplate generates a holon.yaml identity scaffold.
-var holonTemplate = `schema: {{ .Schema | quote }}
-uuid: {{ .UUID | quote }}
-given_name: {{ .GivenName | quote }}
-family_name: {{ .FamilyName | quote }}
-motto: {{ .Motto | quote }}
-composer: {{ .Composer | quote }}
-clade: {{ .Clade | quote }}
-status: {{ .Status }}
-born: {{ .Born | quote }}
-parents: [{{ joinQuoted .Parents }}]
-reproduction: {{ .Reproduction | quote }}
-aliases: [{{ joinQuoted .Aliases }}]
-generated_by: {{ .GeneratedBy | quote }}
-lang: {{ .Lang | quote }}
-proto_status: {{ .ProtoStatus }}
-description: |
-{{ .Description | indent }}
-`
+const protoSchemaV1 = "holon/v1"
 
-var tmplFuncs = template.FuncMap{
-	"quote": func(s string) string {
-		return fmt.Sprintf("%q", s)
-	},
-	"joinQuoted": func(ss []string) string {
-		quoted := make([]string, len(ss))
-		for i, s := range ss {
-			quoted[i] = fmt.Sprintf("%q", s)
-		}
-		return strings.Join(quoted, ", ")
-	},
-	"indent": func(s string) string {
-		if strings.TrimSpace(s) == "" {
-			s = "<Describe what this holon does and complete the operational sections.>"
-		}
-		lines := strings.Split(s, "\n")
-		for i, line := range lines {
-			lines[i] = "  " + line
-		}
-		return strings.Join(lines, "\n")
-	},
+func normalizeProtoSchema(schema string) string {
+	trimmed := strings.TrimSpace(schema)
+	if trimmed == "" || trimmed == "holon/v0" {
+		return protoSchemaV1
+	}
+	return trimmed
 }
 
-// WriteHolonYAML renders an Identity to a holon.yaml file at the given path.
-func WriteHolonYAML(id Identity, path string) error {
-	if strings.TrimSpace(id.Schema) == "" {
-		id.Schema = "holon/v0"
+func appendProtoStringField(b *strings.Builder, indent, name, value string) {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return
 	}
-	tmpl, err := template.New("holon").Funcs(tmplFuncs).Parse(holonTemplate)
-	if err != nil {
-		return fmt.Errorf("template error: %w", err)
+	fmt.Fprintf(b, "%s%s: %s\n", indent, name, strconv.Quote(trimmed))
+}
+
+func appendProtoAliasesField(b *strings.Builder, indent string, aliases []string) {
+	aliases = compactStrings(aliases)
+	if len(aliases) == 0 {
+		return
 	}
 
-	f, err := os.Create(path)
-	if err != nil {
-		return fmt.Errorf("cannot create %s: %w", path, err)
+	b.WriteString(indent)
+	b.WriteString("aliases: [")
+	for i, alias := range aliases {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteString(strconv.Quote(alias))
 	}
-	defer f.Close()
+	b.WriteString("]\n")
+}
 
-	if err := tmpl.Execute(f, id); err != nil {
-		return fmt.Errorf("template execution error: %w", err)
+// WriteHolonProto renders an Identity to a holon.proto file at the given path.
+func WriteHolonProto(id Identity, path string) error {
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("proto path is required")
+	}
+
+	var b strings.Builder
+	b.WriteString("syntax = \"proto3\";\n\n")
+	b.WriteString("import \"holons/v1/manifest.proto\";\n\n")
+	b.WriteString("option (holons.v1.manifest) = {\n")
+	b.WriteString("  identity: {\n")
+	appendProtoStringField(&b, "    ", "schema", normalizeProtoSchema(id.Schema))
+	appendProtoStringField(&b, "    ", "uuid", id.UUID)
+	appendProtoStringField(&b, "    ", "given_name", id.GivenName)
+	appendProtoStringField(&b, "    ", "family_name", id.FamilyName)
+	appendProtoStringField(&b, "    ", "motto", id.Motto)
+	appendProtoStringField(&b, "    ", "composer", id.Composer)
+	appendProtoStringField(&b, "    ", "status", id.Status)
+	appendProtoStringField(&b, "    ", "born", id.Born)
+	appendProtoAliasesField(&b, "    ", id.Aliases)
+	b.WriteString("  }\n")
+	appendProtoStringField(&b, "  ", "description", id.Description)
+	appendProtoStringField(&b, "  ", "lang", id.Lang)
+	b.WriteString("};\n")
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("cannot create directory for %s: %w", path, err)
+	}
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		return fmt.Errorf("cannot write %s: %w", path, err)
 	}
 	return nil
 }

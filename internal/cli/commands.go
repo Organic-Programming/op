@@ -21,6 +21,7 @@ import (
 	"github.com/organic-programming/grace-op/api"
 	"github.com/organic-programming/grace-op/internal/grpcclient"
 	"github.com/organic-programming/grace-op/internal/holons"
+	"github.com/organic-programming/grace-op/internal/identity"
 	"github.com/organic-programming/grace-op/internal/server"
 )
 
@@ -367,7 +368,7 @@ func cmdRun(format Format, globalQuiet bool, args []string) int {
 		return 1
 	}
 	if target.Manifest == nil {
-		err := fmt.Errorf("no %s found in %s", holons.ManifestSourceLabel(), target.RelativePath)
+		err := fmt.Errorf("no %s found in %s", identity.ProtoManifestFileName, target.RelativePath)
 		printer.Done("run failed", err)
 		fmt.Fprintf(os.Stderr, "op run: %v\n", err)
 		return 1

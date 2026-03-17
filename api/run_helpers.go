@@ -15,6 +15,7 @@ import (
 
 	opv1 "github.com/organic-programming/grace-op/gen/go/op/v1"
 	"github.com/organic-programming/grace-op/internal/holons"
+	"github.com/organic-programming/grace-op/internal/identity"
 )
 
 type runIO struct {
@@ -95,7 +96,7 @@ func runWithIO(req *opv1.RunRequest, ioCfg runIO) (*opv1.RunResponse, error) {
 		return response, target.ManifestErr
 	}
 	if target.Manifest == nil {
-		return response, fmt.Errorf("no %s found in %s", holons.ManifestSourceLabel(), target.RelativePath)
+		return response, fmt.Errorf("no %s found in %s", identity.ProtoManifestFileName, target.RelativePath)
 	}
 
 	response.ResolvedTarget = target.RelativePath
