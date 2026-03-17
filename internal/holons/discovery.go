@@ -511,6 +511,7 @@ func collectUUIDMatches(ref string) ([]LocalHolon, error) {
 
 func filterHolonsBySlug(holons []LocalHolon, ref string) []LocalHolon {
 	trimmed := strings.TrimSpace(ref)
+	lowered := strings.ToLower(trimmed)
 	matches := make([]LocalHolon, 0)
 	for _, holon := range holons {
 		// Match by directory basename (traditional slug)
@@ -521,6 +522,14 @@ func filterHolonsBySlug(holons []LocalHolon, ref string) []LocalHolon {
 		// Match by identity-derived slug (given_name + family_name)
 		if idSlug := holon.Identity.Slug(); idSlug != "" && idSlug == trimmed {
 			matches = append(matches, holon)
+			continue
+		}
+		// Match by declared alias (case-insensitive)
+		for _, alias := range holon.Identity.Aliases {
+			if strings.ToLower(strings.TrimSpace(alias)) == lowered {
+				matches = append(matches, holon)
+				break
+			}
 		}
 	}
 	return matches

@@ -232,7 +232,7 @@ func TestResolveTargetUsesShallowestMatchForSameSlugAndUUID(t *testing.T) {
 	}
 }
 
-func TestResolveTargetDoesNotUseAliasesOrGivenNames(t *testing.T) {
+func TestResolveTargetUsesAliasesButNotGivenNames(t *testing.T) {
 	root := t.TempDir()
 	chdirForHolonTest(t, root)
 
@@ -255,9 +255,16 @@ func TestResolveTargetDoesNotUseAliasesOrGivenNames(t *testing.T) {
 	}
 	writeManifestWithIdentity(t, dir, id, "kind: native\nbuild:\n  runner: go-module\nartifacts:\n  binary: dummy-test\n")
 
-	if _, err := ResolveTarget("who"); err == nil {
-		t.Fatal("expected alias lookup to fail")
+	// Aliases must resolve.
+	target, err := ResolveTarget("who")
+	if err != nil {
+		t.Fatalf("expected alias lookup to succeed, got: %v", err)
 	}
+	if filepath.Base(target.Dir) != "dummy-test" {
+		t.Fatalf("alias resolved to %q, want dummy-test", filepath.Base(target.Dir))
+	}
+
+	// Raw given names must still fail.
 	if _, err := ResolveTarget("Sophia"); err == nil {
 		t.Fatal("expected given-name lookup to fail")
 	}

@@ -304,6 +304,7 @@ func resolvedFromDynamic(manifest *dynamic.Message) *Resolved {
 		resolved.Identity.Clade = dynString(ident, 7)
 		resolved.Identity.Status = dynString(ident, 8)
 		resolved.Identity.Born = dynString(ident, 9)
+		resolved.Identity.Aliases = dynStringSlice(ident, 11)
 	}
 
 	if lineage := dynSubMessage(manifest, 2); lineage != nil {
