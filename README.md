@@ -100,7 +100,7 @@ toolchain, composition, host UI, and composite holons. Use
 workspace:
 
 ```bash
-op new --template go-daemon wisupaa-whisper
+op new --template go-daemon gabriel-greeting-go
 op new --template composite-go-swiftui studio-console
 ```
 
