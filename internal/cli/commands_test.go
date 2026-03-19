@@ -2024,39 +2024,6 @@ func TestGRPCTCPSlugDispatchForcesTCP(t *testing.T) {
 	}
 }
 
-func TestGRPCMemSlugDispatchFailsForExternalHolon(t *testing.T) {
-	root := t.TempDir()
-	chdirForTest(t, root)
-	seedEchoHolon(t, root)
-
-	stderr := captureStderr(t, func() {
-		code := Run([]string{"grpc+mem://echo-server", "Ping", `{"message":"Alice"}`}, "0.1.0-test")
-		if code != 1 {
-			t.Fatalf("grpc+mem://echo-server returned %d, want 1", code)
-		}
-	})
-
-	if !strings.Contains(stderr, `mem transport not registered`) {
-		t.Fatalf("stderr missing mem-registration failure: %q", stderr)
-	}
-}
-
-func TestGRPCMemSlugDispatchSucceedsForGraceOP(t *testing.T) {
-	root := t.TempDir()
-	chdirForTest(t, root)
-
-	stdout := captureStdout(t, func() {
-		code := Run([]string{"grpc+mem://grace-op", "ListIdentities", "{}"}, "0.1.0-test")
-		if code != 0 {
-			t.Fatalf("grpc+mem://grace-op returned %d, want 0", code)
-		}
-	})
-
-	if !strings.Contains(stdout, "No identities found.") {
-		t.Fatalf("stdout should confirm the in-process grace-op call succeeded, got %q", stdout)
-	}
-}
-
 func TestFlagValue(t *testing.T) {
 	args := []string{"--name", "Test", "--lang", "rust", "--verbose"}
 

@@ -7,12 +7,14 @@ import (
 	"os"
 	"strings"
 
+	holonserve "github.com/organic-programming/go-holons/pkg/serve"
 	opv1 "github.com/organic-programming/grace-op/gen/go/op/v1"
 	"github.com/organic-programming/grace-op/internal/mcp"
 	"github.com/organic-programming/grace-op/internal/scaffold"
 	"github.com/organic-programming/grace-op/internal/server"
 	"github.com/organic-programming/grace-op/internal/who"
 
+	"google.golang.org/grpc"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -95,7 +97,6 @@ func (c cliState) run(args []string) int {
 	default:
 		if strings.HasPrefix(cmd, "grpc://") ||
 			strings.HasPrefix(cmd, "grpc+tcp://") ||
-			strings.HasPrefix(cmd, "grpc+mem://") ||
 			strings.HasPrefix(cmd, "grpc+stdio://") ||
 			strings.HasPrefix(cmd, "grpc+unix://") ||
 			strings.HasPrefix(cmd, "grpc+ws://") ||
@@ -119,7 +120,6 @@ Holon dispatch (transport chain):
 Direct gRPC URI dispatch:
   op grpc://<slug|host:port> <method>     gRPC auto-connect for slugs, direct TCP for host:port
   op grpc+tcp://<slug|host:port> <method> force gRPC over TCP
-  op grpc+mem://<holon> <method>          force gRPC over in-memory pipe
   op grpc+stdio://<holon> <method>        force gRPC over stdio pipe
   op grpc+unix://<path> <method>          gRPC over Unix socket
   op grpc+ws://<host:port> <method>       gRPC over WebSocket
@@ -239,14 +239,10 @@ func (c cliState) runMCPCommand(args []string) int {
 }
 
 func (c cliState) runServeCommand(args []string) int {
-	listenURI := flagOrDefault(args, "--listen", "")
-	if listenURI == "" {
-		port := flagOrDefault(args, "--port", "9090")
-		listenURI = "tcp://:" + port
-	}
-	noReflect := flagValue(args, "--no-reflect")
-	reflect := noReflect == ""
-	if err := server.ListenAndServe(listenURI, reflect, RPCHandler{}); err != nil {
+	options := holonserve.ParseOptions(args)
+	if err := holonserve.RunWithOptions(options.ListenURI, func(s *grpc.Server) {
+		server.Register(s, RPCHandler{})
+	}, options.Reflect); err != nil {
 		fmt.Fprintf(c.stderr, "op serve: %v\n", err)
 		return 1
 	}

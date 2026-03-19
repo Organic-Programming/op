@@ -18,11 +18,14 @@ import (
 	"text/tabwriter"
 
 	sdkconnect "github.com/organic-programming/go-holons/pkg/connect"
+	holonserve "github.com/organic-programming/go-holons/pkg/serve"
 	"github.com/organic-programming/grace-op/api"
 	"github.com/organic-programming/grace-op/internal/grpcclient"
 	"github.com/organic-programming/grace-op/internal/holons"
 	"github.com/organic-programming/grace-op/internal/identity"
 	"github.com/organic-programming/grace-op/internal/server"
+
+	"google.golang.org/grpc"
 )
 
 // Run dispatches the command and returns an exit code.
@@ -85,11 +88,10 @@ func Run(args []string, version string) int {
 	case "new", "list", "show":
 		return cmdWho(format, quiet, cmd, rest)
 
-	// --- URI dispatch: grpc://, grpc+tcp://, grpc+mem://, grpc+stdio://, grpc+unix://, grpc+ws:// ---
+	// --- URI dispatch: grpc://, grpc+tcp://, grpc+stdio://, grpc+unix://, grpc+ws:// ---
 	default:
 		if strings.HasPrefix(cmd, "grpc://") ||
 			strings.HasPrefix(cmd, "grpc+tcp://") ||
-			strings.HasPrefix(cmd, "grpc+mem://") ||
 			strings.HasPrefix(cmd, "grpc+stdio://") ||
 			strings.HasPrefix(cmd, "grpc+unix://") ||
 			strings.HasPrefix(cmd, "grpc+ws://") ||
@@ -114,7 +116,6 @@ Holon dispatch (transport chain):
 Direct gRPC URI dispatch:
   op grpc://<slug|host:port> <method>    gRPC auto-connect for slugs, direct TCP for host:port
   op grpc+tcp://<slug|host:port> <method> force gRPC over TCP
-  op grpc+mem://<holon> <method>         force gRPC over in-memory pipe (in-process only)
   op grpc+stdio://<holon> <method>       force gRPC over stdio pipe (ephemeral)
   op grpc+unix://<path> <method>         gRPC over Unix socket
   op grpc+ws://<host:port> <method>      gRPC over WebSocket
@@ -290,16 +291,11 @@ func discoverOrigin(origin string) string {
 }
 
 func cmdServe(args []string) int {
-	// Support both --listen <URI> and legacy --port <port>
-	listenURI := flagOrDefault(args, "--listen", "")
-	if listenURI == "" {
-		port := flagOrDefault(args, "--port", "9090")
-		listenURI = "tcp://:" + port
-	}
-	noReflect := flagValue(args, "--no-reflect")
-	reflect := noReflect == ""
+	options := holonserve.ParseOptions(args)
 
-	if err := server.ListenAndServe(listenURI, reflect, api.RPCHandler{}); err != nil {
+	if err := holonserve.RunWithOptions(options.ListenURI, func(s *grpc.Server) {
+		server.Register(s, api.RPCHandler{})
+	}, options.Reflect); err != nil {
 		fmt.Fprintf(os.Stderr, "op serve: %v\n", err)
 		return 1
 	}
@@ -473,7 +469,6 @@ func cmdRun(format Format, globalQuiet bool, args []string) int {
 //   - grpc://holon <method>           → auto-connect chain for slug targets
 //   - grpc+tcp://host:port <method>   → TCP to existing server
 //   - grpc+tcp://holon <method>       → forced TCP startup for slug targets
-//   - grpc+mem://holon <method>       → in-memory composition dispatch (in-process only)
 //   - grpc+stdio://holon <method>     → forced stdio pipe
 //   - grpc+unix://path <method>       → Unix domain socket connection
 func cmdGRPC(format Format, uri string, args []string) int {
@@ -484,9 +479,6 @@ func cmdGRPC(format Format, uri string, args []string) int {
 		return cmdGRPCDirect(format, "unix://"+strings.TrimPrefix(uri, "grpc+unix://"), args)
 	case strings.HasPrefix(uri, "grpc+ws://") || strings.HasPrefix(uri, "grpc+wss://"):
 		return cmdGRPCWebSocket(format, uri, args)
-	case strings.HasPrefix(uri, "grpc+mem://"):
-		holonName := strings.TrimPrefix(uri, "grpc+mem://")
-		return cmdGRPCMem(format, holonName, args)
 	case strings.HasPrefix(uri, "grpc+tcp://"):
 		target := strings.TrimPrefix(uri, "grpc+tcp://")
 		if isHostPortTarget(target) {

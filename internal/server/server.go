@@ -3,14 +3,10 @@ package server
 
 import (
 	"context"
-	"fmt"
-	"log"
 
-	"github.com/organic-programming/go-holons/pkg/transport"
 	opv1 "github.com/organic-programming/grace-op/gen/go/op/v1"
 
 	"google.golang.org/grpc"
-	grpcReflection "google.golang.org/grpc/reflection"
 )
 
 type Handler interface {
@@ -155,26 +151,6 @@ func (s *Server) Env(ctx context.Context, req *opv1.EnvRequest) (*opv1.EnvRespon
 	return s.handler.Env(ctx, req)
 }
 
-func ListenAndServe(listenURI string, reflect bool, handler Handler) error {
-	if handler == nil {
-		return fmt.Errorf("server handler not configured")
-	}
-
-	lis, err := transport.Listen(listenURI)
-	if err != nil {
-		return fmt.Errorf("listen %s: %w", listenURI, err)
-	}
-
-	s := grpc.NewServer()
+func Register(s *grpc.Server, handler Handler) {
 	opv1.RegisterOPServiceServer(s, New(handler))
-	if reflect {
-		grpcReflection.Register(s)
-	}
-
-	mode := "reflection ON"
-	if !reflect {
-		mode = "reflection OFF"
-	}
-	log.Printf("OP gRPC server listening on %s (%s)", listenURI, mode)
-	return s.Serve(lis)
 }

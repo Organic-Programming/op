@@ -7,19 +7,12 @@ import (
 	"io"
 	"net"
 	"strings"
-	"sync"
 	"time"
 
 	sdkconnect "github.com/organic-programming/go-holons/pkg/connect"
-	holonsgrpcclient "github.com/organic-programming/go-holons/pkg/grpcclient"
-	"github.com/organic-programming/go-holons/pkg/transport"
 	opv1 "github.com/organic-programming/grace-op/gen/go/op/v1"
 	"github.com/organic-programming/grace-op/internal/grpcclient"
 	"github.com/organic-programming/grace-op/internal/holons"
-	"github.com/organic-programming/grace-op/internal/server"
-
-	"google.golang.org/grpc"
-	grpcreflection "google.golang.org/grpc/reflection"
 )
 
 func (c cliState) runDiscoverCommand(format Format, args []string) int {
@@ -246,8 +239,6 @@ func (c cliState) runGRPCCommand(format Format, uri string, args []string) int {
 		return c.runGRPCDirectCommand(format, "unix://"+strings.TrimPrefix(uri, "grpc+unix://"), args)
 	case strings.HasPrefix(uri, "grpc+ws://") || strings.HasPrefix(uri, "grpc+wss://"):
 		return c.runGRPCWebSocketCommand(format, uri, args)
-	case strings.HasPrefix(uri, "grpc+mem://"):
-		return c.runGRPCConnectedCommand(format, uri, strings.TrimPrefix(uri, "grpc+mem://"), args, sdkconnect.TransportMem)
 	case strings.HasPrefix(uri, "grpc+tcp://"):
 		target := strings.TrimPrefix(uri, "grpc+tcp://")
 		if isHostPortTarget(target) {
@@ -393,32 +384,6 @@ func looksLikeJSON(value string) bool {
 func isHostPortTarget(target string) bool {
 	_, _, err := net.SplitHostPort(strings.TrimSpace(target))
 	return err == nil
-}
-
-var (
-	graceOPMemOnce     sync.Once
-	graceOPMemListener *transport.MemListener
-)
-
-func init() {
-	dialer := func(ctx context.Context) (*grpc.ClientConn, error) {
-		return holonsgrpcclient.DialMem(ctx, ensureGraceOPMemListener())
-	}
-	sdkconnect.RegisterMemTarget("grace-op", dialer)
-	sdkconnect.RegisterMemTarget("op", dialer)
-}
-
-func ensureGraceOPMemListener() *transport.MemListener {
-	graceOPMemOnce.Do(func() {
-		graceOPMemListener = transport.NewMemListener()
-		grpcServer := grpc.NewServer()
-		opv1.RegisterOPServiceServer(grpcServer, server.New(RPCHandler{}))
-		grpcreflection.Register(grpcServer)
-		go func() {
-			_ = grpcServer.Serve(graceOPMemListener)
-		}()
-	})
-	return graceOPMemListener
 }
 
 func canonicalMethodName(method string) string {

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	holonserve "github.com/organic-programming/go-holons/pkg/serve"
 	"github.com/organic-programming/go-holons/pkg/transport"
 	"github.com/organic-programming/grace-op/api"
 	opv1 "github.com/organic-programming/grace-op/gen/go/op/v1"
@@ -38,7 +39,7 @@ func startTestServer(t *testing.T, root string) (opv1.OPServiceClient, func()) {
 
 	lis := bufconn.Listen(bufSize)
 	s := grpc.NewServer()
-	opv1.RegisterOPServiceServer(s, server.New(api.RPCHandler{}))
+	server.Register(s, api.RPCHandler{})
 
 	go func() { _ = s.Serve(lis) }()
 
@@ -272,9 +273,9 @@ func TestShowIdentityNotFound(t *testing.T) {
 	}
 }
 
-// --- ListenAndServe ---
+// --- Standard Go serve integration ---
 
-func TestListenAndServePortConflict(t *testing.T) {
+func TestRunWithOptionsPortConflict(t *testing.T) {
 	lis, err := net.Listen("tcp", ":0")
 	if err != nil {
 		t.Fatal(err)
@@ -282,52 +283,11 @@ func TestListenAndServePortConflict(t *testing.T) {
 	defer lis.Close()
 
 	port := lis.Addr().(*net.TCPAddr).Port
-	err = server.ListenAndServe(fmt.Sprintf("tcp://:%d", port), true, api.RPCHandler{})
+	err = holonserve.RunWithOptions(fmt.Sprintf("tcp://:%d", port), func(s *grpc.Server) {
+		server.Register(s, api.RPCHandler{})
+	}, false)
 	if err == nil {
 		t.Fatal("expected error for port conflict")
-	}
-}
-
-// --- mem:// transport test (using go-holons SDK MemListener) ---
-
-func TestMemTransport(t *testing.T) {
-	root := t.TempDir()
-	seedHolon(t, root, "mem-1", "MemAlpha")
-
-	original, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chdir(root); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(original) //nolint:errcheck
-
-	mem := transport.NewMemListener()
-	s := grpc.NewServer()
-	opv1.RegisterOPServiceServer(s, server.New(api.RPCHandler{}))
-	go func() { _ = s.Serve(mem) }()
-	defer s.Stop()
-
-	conn, err := grpc.NewClient(
-		"passthrough:///mem",
-		grpc.WithContextDialer(func(ctx context.Context, _ string) (net.Conn, error) {
-			return mem.Dial()
-		}),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer conn.Close()
-
-	client := opv1.NewOPServiceClient(conn)
-	resp, err := client.Discover(context.Background(), &opv1.DiscoverRequest{})
-	if err != nil {
-		t.Fatalf("Discover over mem://: %v", err)
-	}
-	if len(resp.Entries) != 1 {
-		t.Errorf("Discover returned %d entries, want 1", len(resp.Entries))
 	}
 }
 
@@ -353,7 +313,7 @@ func TestWSTransport(t *testing.T) {
 	defer wsLis.Close()
 
 	s := grpc.NewServer()
-	opv1.RegisterOPServiceServer(s, server.New(api.RPCHandler{}))
+	server.Register(s, api.RPCHandler{})
 	reflection.Register(s)
 	go func() { _ = s.Serve(wsLis) }()
 	defer s.Stop()

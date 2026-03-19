@@ -1,11 +1,10 @@
 // Package grpcclient connects to a holon's gRPC server and forwards calls.
-// It uses gRPC reflection to discover available services and methods,
-// making it work with ANY holon regardless of implementation language.
+// It prefers HolonMeta/Describe for discovery and dynamic protobuf handling,
+// and falls back to gRPC reflection when Describe is unavailable.
 package grpcclient
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -35,8 +34,7 @@ type CallResult struct {
 }
 
 // Dial connects to a gRPC server at the given address and calls a method.
-// It uses server reflection to discover the service and method descriptors,
-// so it works with any holon in any language.
+// It resolves methods via Describe first and falls back to reflection when needed.
 func Dial(address, methodName string, inputJSON string) (*CallResult, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -53,12 +51,25 @@ func Dial(address, methodName string, inputJSON string) (*CallResult, error) {
 	return InvokeConn(ctx, conn, methodName, inputJSON)
 }
 
-// InvokeConn calls a reflected unary RPC over an existing gRPC connection.
+// InvokeConn calls a unary RPC over an existing gRPC connection.
+// Describe is used first; reflection is a fallback only.
 func InvokeConn(ctx context.Context, conn *grpc.ClientConn, methodName string, inputJSON string) (*CallResult, error) {
 	if conn == nil {
 		return nil, errors.New("gRPC connection is required")
 	}
 
+	result, err := invokeViaDescribe(ctx, conn, methodName, inputJSON)
+	if err == nil {
+		return result, nil
+	}
+	if !shouldFallbackToReflection(err) {
+		return nil, err
+	}
+
+	return invokeConnViaReflection(ctx, conn, methodName, inputJSON)
+}
+
+func invokeConnViaReflection(ctx context.Context, conn *grpc.ClientConn, methodName string, inputJSON string) (*CallResult, error) {
 	targetMethod := canonicalMethodName(methodName)
 	refClient := grpc_reflection_v1alpha.NewServerReflectionClient(conn)
 	stream, err := refClient.ServerReflectionInfo(ctx)
@@ -137,6 +148,16 @@ func ListMethods(address string) ([]string, error) {
 	}
 	defer conn.Close()
 
+	if methods, err := listMethodsViaDescribe(ctx, conn); err == nil {
+		return methods, nil
+	} else if !shouldFallbackToReflection(err) {
+		return nil, err
+	}
+
+	return listMethodsViaReflection(ctx, conn)
+}
+
+func listMethodsViaReflection(ctx context.Context, conn *grpc.ClientConn) ([]string, error) {
 	refClient := grpc_reflection_v1alpha.NewServerReflectionClient(conn)
 	stream, err := refClient.ServerReflectionInfo(ctx)
 	if err != nil {
@@ -372,23 +393,7 @@ func callMethod(ctx context.Context, conn *grpc.ClientConn, svc protoreflect.Ser
 		return nil, fmt.Errorf("marshal output: %w", err)
 	}
 
-	// Pretty-print the JSON
-	var pretty json.RawMessage
-	if err := json.Unmarshal(outputBytes, &pretty); err != nil {
-		return &CallResult{
-			Service: string(svc.FullName()),
-			Method:  string(method.Name()),
-			Output:  string(outputBytes),
-		}, nil
-	}
-
-	prettyBytes, _ := json.MarshalIndent(pretty, "", "  ")
-
-	return &CallResult{
-		Service: string(svc.FullName()),
-		Method:  string(method.Name()),
-		Output:  string(prettyBytes),
-	}, nil
+	return newCallResult(string(svc.FullName()), string(method.Name()), outputBytes), nil
 }
 
 // DialStdio launches a holon binary with `serve --listen stdio://` and

@@ -2,7 +2,6 @@ package api_test
 
 import (
 	"bytes"
-	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -134,33 +133,5 @@ func TestRunCLIModInitJSON(t *testing.T) {
 	}
 	if got := resp.GetHolonPath(); got != "sample/alpha" {
 		t.Fatalf("holon_path = %q, want %q", got, "sample/alpha")
-	}
-}
-
-func TestRunCLITransportDispatchJSON(t *testing.T) {
-	root := t.TempDir()
-	writeProtoHolon(t, root)
-
-	payload, err := json.Marshal(map[string]string{"rootDir": root})
-	if err != nil {
-		t.Fatalf("Marshal payload: %v", err)
-	}
-
-	var stdout bytes.Buffer
-	var stderr bytes.Buffer
-	code := api.RunCLI([]string{"--format", "json", "grpc+mem://op", "ListIdentities", string(payload)}, &stdout, &stderr)
-	if code != 0 {
-		t.Fatalf("RunCLI returned %d, want 0; stderr=%s", code, stderr.String())
-	}
-
-	var resp opv1.ListIdentitiesResponse
-	if err := protojson.Unmarshal(stdout.Bytes(), &resp); err != nil {
-		t.Fatalf("invalid dispatch json: %v\noutput=%s", err, stdout.String())
-	}
-	if len(resp.GetEntries()) != 1 {
-		t.Fatalf("entries = %d, want 1", len(resp.GetEntries()))
-	}
-	if got := resp.GetEntries()[0].GetIdentity().GetFamilyName(); got != "Service" {
-		t.Fatalf("family_name = %q, want %q", got, "Service")
 	}
 }
