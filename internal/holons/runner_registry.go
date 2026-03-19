@@ -170,10 +170,37 @@ func writeDotnetLauncher(path string, dllName string) error {
 	}
 	script := fmt.Sprintf(`#!/bin/sh
 set -eu
+%s
 SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
-exec dotnet "$SCRIPT_DIR/%s" "$@"
-`, dllName)
+DOTNET_BIN=$(command -v dotnet 2>/dev/null || true)
+if [ -z "$DOTNET_BIN" ]; then
+  for candidate in /opt/homebrew/bin/dotnet /usr/local/bin/dotnet /opt/homebrew/share/dotnet/dotnet /usr/local/share/dotnet/dotnet /usr/share/dotnet/dotnet; do
+    if [ -x "$candidate" ]; then
+      DOTNET_BIN="$candidate"
+      break
+    fi
+  done
+fi
+if [ -z "$DOTNET_BIN" ]; then
+  echo "dotnet: not found" >&2
+  exit 127
+fi
+exec "$DOTNET_BIN" "$SCRIPT_DIR/%s" "$@"
+`, launcherPATHExports(), dllName)
 	return os.WriteFile(path, []byte(script), 0o755)
+}
+
+func launcherPATHExports() string {
+	return `export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin${PATH:+:$PATH}"`
+}
+
+func launcherUTF8LocaleExports() string {
+	return `if [ -z "${LANG:-}" ]; then
+  export LANG=en_US.UTF-8
+fi
+if [ -z "${LC_ALL:-}" ]; then
+  export LC_ALL="$LANG"
+fi`
 }
 
 func hasCMakeProject(manifest *LoadedManifest) bool {
@@ -835,7 +862,9 @@ func (rubyRunner) build(manifest *LoadedManifest, ctx BuildContext, report *Repo
 		rubyLibExport = fmt.Sprintf("export RUBYLIB=%q${RUBYLIB:+:$RUBYLIB}\n", base64Lib)
 	}
 	wrapper := fmt.Sprintf(
-		"#!/bin/sh\nset -eu\nexport BUNDLE_GEMFILE=%q\nexport BUNDLE_PATH=%q\nexport BUNDLE_DISABLE_SHARED_GEMS=true\nexport BUNDLE_FORCE_RUBY_PLATFORM=true\n%sexec %q exec %q %q \"$@\"\n",
+		"#!/bin/sh\nset -eu\n%s\n%s\nexport BUNDLE_GEMFILE=%q\nexport BUNDLE_PATH=%q\nexport BUNDLE_DISABLE_SHARED_GEMS=true\nexport BUNDLE_FORCE_RUBY_PLATFORM=true\n%sexec %q exec %q %q \"$@\"\n",
+		launcherPATHExports(),
+		launcherUTF8LocaleExports(),
 		filepath.Join(manifest.Dir, "Gemfile"),
 		filepath.Join(manifest.Dir, ".op", "bundle"),
 		rubyLibExport,

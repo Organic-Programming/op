@@ -664,7 +664,13 @@ func TestSyncDotnetArtifactsCreatesLauncherWhenOnlyDLLExists(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(contents), `exec dotnet "$SCRIPT_DIR/dotnet-demo.dll" "$@"`) {
+	if !strings.Contains(string(contents), `export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin${PATH:+:$PATH}"`) {
+		t.Fatalf("launcher contents missing PATH bootstrap: %s", contents)
+	}
+	if !strings.Contains(string(contents), `DOTNET_BIN=$(command -v dotnet 2>/dev/null || true)`) {
+		t.Fatalf("launcher contents missing dotnet lookup: %s", contents)
+	}
+	if !strings.Contains(string(contents), `exec "$DOTNET_BIN" "$SCRIPT_DIR/dotnet-demo.dll" "$@"`) {
 		t.Fatalf("launcher contents missing dotnet invocation: %s", contents)
 	}
 }
@@ -870,6 +876,55 @@ func TestRubyEntrypointPrefersBinMain(t *testing.T) {
 	}
 	if got != "bin/main.rb" {
 		t.Fatalf("rubyEntrypoint() = %q, want %q", got, "bin/main.rb")
+	}
+}
+
+func TestRubyRunnerBuildWritesUTF8Wrapper(t *testing.T) {
+	toolDir := t.TempDir()
+	writeFakeCommand(t, toolDir, "bundle")
+	writeFakeCommand(t, toolDir, "ruby")
+	writeFakeCommand(t, toolDir, "gem")
+	t.Setenv("PATH", toolDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "bin"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "Gemfile"), []byte("source 'https://example.com'\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "bin", "main.rb"), []byte("puts 'ok'\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	writeRunnerManifest(t, root, "schema: holon/v0\nkind: native\nbuild:\n  runner: ruby\nartifacts:\n  binary: ruby-demo\n")
+
+	manifest, err := LoadManifest(root)
+	if err != nil {
+		t.Fatalf("LoadManifest failed: %v", err)
+	}
+
+	var report Report
+	if err := (rubyRunner{}).build(manifest, BuildContext{
+		Target:   canonicalRuntimeTarget(),
+		Mode:     buildModeDebug,
+		Progress: progress.Silence(),
+	}, &report); err != nil {
+		t.Fatalf("ruby build failed: %v", err)
+	}
+
+	contents, err := os.ReadFile(manifest.BinaryPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrapper := string(contents)
+	if !strings.Contains(wrapper, `export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin${PATH:+:$PATH}"`) {
+		t.Fatalf("wrapper missing PATH bootstrap: %s", wrapper)
+	}
+	if !strings.Contains(wrapper, `export LANG=en_US.UTF-8`) {
+		t.Fatalf("wrapper missing LANG bootstrap: %s", wrapper)
+	}
+	if !strings.Contains(wrapper, `export LC_ALL="$LANG"`) {
+		t.Fatalf("wrapper missing LC_ALL bootstrap: %s", wrapper)
 	}
 }
 
