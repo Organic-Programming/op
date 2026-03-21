@@ -94,3 +94,48 @@ func packageArchitectures(pkgDir string) []string {
 	sort.Strings(architectures)
 	return architectures
 }
+
+// writeHolonJSONForInstall writes .holon.json into pkgDir for any holon
+// (including composites). Used at install time when wrapping raw artifacts
+// into a .holon package.
+func writeHolonJSONForInstall(manifest *LoadedManifest, pkgDir string) error {
+	if manifest == nil {
+		return fmt.Errorf("manifest is nil")
+	}
+
+	entrypoint := strings.TrimSpace(manifest.BinaryName())
+	if entrypoint == "" {
+		entrypoint = strings.TrimSpace(manifest.Manifest.ArtifactPath())
+		if entrypoint != "" {
+			entrypoint = filepath.Base(entrypoint)
+		}
+	}
+
+	payload := HolonPackageJSON{
+		Schema: "holon-package/v1",
+		Slug:   manifest.Name,
+		UUID:   strings.TrimSpace(manifest.Manifest.UUID),
+		Identity: HolonIdentityJSON{
+			GivenName:  strings.TrimSpace(manifest.Manifest.GivenName),
+			FamilyName: strings.TrimSpace(manifest.Manifest.FamilyName),
+			Motto:      strings.TrimSpace(manifest.Manifest.Motto),
+		},
+		Lang:          strings.TrimSpace(manifest.Manifest.Lang),
+		Runner:        strings.TrimSpace(manifest.Manifest.Build.Runner),
+		Status:        strings.TrimSpace(manifest.Manifest.Status),
+		Kind:          strings.TrimSpace(manifest.Manifest.Kind),
+		Transport:     strings.TrimSpace(manifest.Manifest.Transport),
+		Entrypoint:    entrypoint,
+		Architectures: packageArchitectures(pkgDir),
+		HasDist:       dirExists(filepath.Join(pkgDir, "dist")),
+		HasSource:     dirExists(filepath.Join(pkgDir, "git")),
+	}
+
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return os.WriteFile(filepath.Join(pkgDir, ".holon.json"), data, 0o644)
+}
+

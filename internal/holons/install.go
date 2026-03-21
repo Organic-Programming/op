@@ -117,21 +117,60 @@ func Install(ref string, opts InstallOptions) (InstallReport, error) {
 
 	installedPath := filepath.Join(openv.OPBIN(), installName)
 
-	// Self-install: when the artifact binary is "op", install just the
-	// binary into OPBIN instead of the whole .holon package directory.
-	// This keeps op as a standalone executable — par dérogation.
+	// Self-install: install as a proper .holon package (like every other
+	// holon), then create a symlink $OPBIN/<binary> → <pkg>/bin/<arch>/<binary>
+	// so that `op` remains directly callable from PATH.
 	if isSelfInstall(target.Manifest) {
-		binaryPath := target.Manifest.BinaryPath()
-		if binaryPath == "" {
-			return report, fmt.Errorf("op binary not found after build")
-		}
-		installedPath = filepath.Join(openv.OPBIN(), target.Manifest.BinaryName())
 		reporter.Step("copying to " + installedPath + "...")
-		if err := copyFile(binaryPath, installedPath); err != nil {
+		if err := copyArtifact(artifactPath, installedPath); err != nil {
 			return report, fmt.Errorf("install %s: %w", installName, err)
 		}
 		report.Installed = installedPath
 		report.Notes = append(report.Notes, "installed into "+installedPath)
+
+		binaryName := target.Manifest.BinaryName()
+		// Relative symlink: e.g. grace-op.holon/bin/darwin_arm64/op
+		symlinkRel := filepath.Join(installName, "bin", runtimeArchitecture(), binaryName)
+		symlinkPath := filepath.Join(openv.OPBIN(), binaryName)
+		_ = os.Remove(symlinkPath)
+		if err := os.Symlink(symlinkRel, symlinkPath); err != nil {
+			return report, fmt.Errorf("symlink %s: %w", symlinkPath, err)
+		}
+		report.Notes = append(report.Notes, "symlinked "+symlinkPath+" → "+symlinkRel)
+		return report, nil
+	}
+
+	// App bundles: wrap in a .holon package so the .app lives under
+	// bin/<arch>/ — consistent with the package spec and enabling
+	// multi-target/multi-platform installs.
+	if isMacAppBundlePath(artifactPath) {
+		slug := filepath.Base(target.Dir)
+		pkgName := slug + ".holon"
+		pkgPath := filepath.Join(openv.OPBIN(), pkgName)
+		archDir := filepath.Join(pkgPath, "bin", runtimeArchitecture())
+		appName := filepath.Base(artifactPath)
+
+		reporter.Step("copying to " + pkgPath + "...")
+		_ = os.RemoveAll(pkgPath)
+		if err := os.MkdirAll(archDir, 0o755); err != nil {
+			return report, fmt.Errorf("create %s: %w", archDir, err)
+		}
+		if err := copyArtifact(artifactPath, filepath.Join(archDir, appName)); err != nil {
+			return report, fmt.Errorf("install %s: %w", pkgName, err)
+		}
+		if err := writeHolonJSONForInstall(target.Manifest, pkgPath); err != nil {
+			return report, fmt.Errorf("write .holon.json: %w", err)
+		}
+
+		report.Installed = pkgPath
+		report.Notes = append(report.Notes, "installed into "+pkgPath)
+		if opts.LinkApplications {
+			linkPath, err := linkBundleIntoApplications(filepath.Join(archDir, appName))
+			if err != nil {
+				return report, fmt.Errorf("link %s into Applications: %w", appName, err)
+			}
+			report.Notes = append(report.Notes, "linked into "+linkPath)
+		}
 		return report, nil
 	}
 
@@ -141,13 +180,6 @@ func Install(ref string, opts InstallOptions) (InstallReport, error) {
 	}
 	report.Installed = installedPath
 	report.Notes = append(report.Notes, "installed into "+installedPath)
-	if opts.LinkApplications && isMacAppBundlePath(installedPath) {
-		linkPath, err := linkBundleIntoApplications(installedPath)
-		if err != nil {
-			return report, fmt.Errorf("link %s into Applications: %w", installName, err)
-		}
-		report.Notes = append(report.Notes, "linked into "+linkPath)
-	}
 	return report, nil
 }
 
@@ -207,6 +239,14 @@ func UninstallWithOptions(ref string, opts InstallOptions) (InstallReport, error
 		linkPath := filepath.Join(applicationsDir, filepath.Base(installedPath))
 		if _, err := os.Lstat(linkPath); err == nil {
 			_ = os.Remove(linkPath)
+		}
+	}
+	// Self-install holons leave a symlink ($OPBIN/<binary>) alongside the
+	// .holon package; clean it up.
+	if target != nil && target.Manifest != nil && isSelfInstall(target.Manifest) {
+		symlinkPath := filepath.Join(openv.OPBIN(), target.Manifest.BinaryName())
+		if fi, lErr := os.Lstat(symlinkPath); lErr == nil && fi.Mode()&os.ModeSymlink != 0 {
+			_ = os.Remove(symlinkPath)
 		}
 	}
 	report.Notes = append(report.Notes, "removed "+installedPath)

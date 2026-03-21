@@ -668,6 +668,14 @@ func DiscoverInOPBIN() []string {
 		if name == "" || strings.HasPrefix(name, ".") || strings.HasSuffix(name, ".tmp") {
 			continue
 		}
+		// Skip symlinks that point into a .holon package (e.g. op → grace-op.holon/…).
+		if entry.Type()&os.ModeSymlink != 0 {
+			if linkTarget, lErr := os.Readlink(filepath.Join(opbin, name)); lErr == nil {
+				if isHolonPackagePath(strings.SplitN(filepath.ToSlash(linkTarget), "/", 2)[0]) {
+					continue
+				}
+			}
+		}
 		if info.IsDir() && !isMacAppBundlePath(name) {
 			path := filepath.Join(opbin, name)
 			found = append(found, fmt.Sprintf("%s -> %s", name, path))

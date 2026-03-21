@@ -1066,8 +1066,9 @@ func TestInstallCommandInstallsCompositeBundle(t *testing.T) {
 		}
 	})
 
-	installed := filepath.Join(root, ".runtime", "bin", "composite.app")
-	if _, err := os.Stat(filepath.Join(installed, "Contents", "MacOS", "MyApp")); err != nil {
+	installed := filepath.Join(root, ".runtime", "bin", "composite.holon")
+	appBundle := filepath.Join(installed, "bin", runtime.GOOS+"_"+runtime.GOARCH, "MyApp.app")
+	if _, err := os.Stat(filepath.Join(appBundle, "Contents", "MacOS", "MyApp")); err != nil {
 		t.Fatalf("installed app bundle missing payload: %v", err)
 	}
 	if !strings.Contains(output, "Installed: "+installed) {
