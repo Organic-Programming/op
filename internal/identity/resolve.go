@@ -12,6 +12,7 @@ import (
 	"github.com/jhump/protoreflect/desc"
 	"github.com/jhump/protoreflect/desc/protoparse"
 	"github.com/jhump/protoreflect/dynamic"
+	protosfs "github.com/organic-programming/grace-op/_protos"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -171,7 +172,7 @@ func parseProtoFiles(baseDir string, relFiles []string) ([]*desc.FileDescriptor,
 		ImportPaths:               buildImportPaths(baseDir),
 		InferImportPaths:          true,
 		IncludeSourceCodeInfo:     false,
-		LookupImport:              desc.LoadFileDescriptor,
+		LookupImport:              lookupImportWithEmbed,
 		AllowExperimentalEditions: true,
 	}
 
@@ -180,6 +181,25 @@ func parseProtoFiles(baseDir string, relFiles []string) ([]*desc.FileDescriptor,
 		return nil, fmt.Errorf("parse proto files in %s: %w", baseDir, err)
 	}
 	return files, nil
+}
+
+// lookupImportWithEmbed resolves imports by first checking the embedded
+// canonical protos, then falling back to the standard descriptor registry.
+// This eliminates the need for a _protos/ directory on disk.
+func lookupImportWithEmbed(path string) (*desc.FileDescriptor, error) {
+	// Try embedded canonical protos first.
+	data, err := protosfs.FS.ReadFile(path)
+	if err == nil {
+		p := protoparse.Parser{
+			Accessor: protoparse.FileContentsFromMap(map[string]string{path: string(data)}),
+		}
+		fds, parseErr := p.ParseFiles(path)
+		if parseErr == nil && len(fds) > 0 {
+			return fds[0], nil
+		}
+	}
+	// Fall back to the standard well-known proto registry.
+	return desc.LoadFileDescriptor(path)
 }
 
 func extractResolved(fd *desc.FileDescriptor) (*Resolved, bool) {
