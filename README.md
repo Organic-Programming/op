@@ -1,5 +1,8 @@
 # OP — The Organic Programming CLI
 
+
+<!-- Would prefer "Calculemus!" -->
+
 > *"One command, every holon."*
 
 OP is the unified entry point to the Organic Programming ecosystem.
@@ -8,8 +11,31 @@ commands to them through a single interface.
 
 ## Install
 
+
+<!--todo 
+
+INSTALLATION MUST BE VERY EASY AND SETUP ANYTHING REQUIRED. 
+OPPATH OPBIN 
+my  install path is  ~/.op/bin/grace-op.holon/bin/darwin_arm64 where the arch may change 
+and with a symlink to  ~/.op/bin/grace-op.holon/bin/op
+
+
+So something like
+
+= from source 
+git clone 
+go build op  
+
+Then we should use  op 
+1. to set up the env 
+2. 
+
+a one line script should be proposed. 
+
+-->
+
 ```bash
-GOBIN="$OPBIN" go install github.com/organic-programming/grace-op/cmd/op@latest
+GOBIN="$OPBIN/grac" go install github.com/organic-programming/grace-op/cmd/op@latest
 ```
 
 The binary is installed as `op` (not `grace-op`) because the Go module
